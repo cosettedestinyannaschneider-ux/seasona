@@ -24,16 +24,17 @@
 ## 环境准备
 
 1. 复制 `.env.example` 为 `.env`。
-2. 填写 PostgreSQL、Redis、Meilisearch、JWT、LLM、Embedding 等配置。
-3. 根据 `docs/schema.sql` 在 PostgreSQL 中手动建表。
-4. 手动准备至少一个管理员账号。管理员不开放公网注册。
-5. 安装后端依赖：
+2. 准备Python(>=3.14),PostgresSQL(>=18.3),Redis(>=8.6.2),Meilisearch环境，或者使用docker进行配置，如果需要生产部署，还需要准备nginx(>=1.31.0)，
+3. 填写 PostgreSQL、Redis、Meilisearch、JWT、LLM、Embedding 等配置。
+4. 根据 `docs/schema.sql` 在 PostgreSQL 中手动建表。
+5. 手动准备至少一个管理员账号。管理员不开放公网注册。
+6. 安装后端依赖：
 
 ```bash
 python -m pip install -r requirements.txt
 ```
 
-6. 安装前端依赖：
+7. 安装前端依赖：
 
 ```bash
 cd frontend/vite
