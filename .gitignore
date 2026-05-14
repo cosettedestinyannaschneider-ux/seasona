@@ -1,0 +1,49 @@
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Logs and local runtime files
+*.log
+*.pid
+*.sqlite
+*.sqlite3
+
+# Uploaded media is runtime data; keep only the placeholder directory marker.
+media/*
+!media/.gitkeep
+test/media/
+
+# Frontend
+frontend/vite/node_modules/
+frontend/vite/.vite/
+frontend/vite/npm-debug.log*
+frontend/vite/yarn-debug.log*
+frontend/vite/yarn-error.log*
+frontend/vite/pnpm-debug.log*
+frontend/dist/
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Docker / temporary artifacts
+*.tar
+tmp/
+temp/

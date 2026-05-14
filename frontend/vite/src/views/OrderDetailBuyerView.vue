@@ -1,0 +1,295 @@
+<template>
+  <section v-if="order" class="buyer-page order-detail-page">
+    <button class="detail-back" type="button" @click="goBack">返回</button>
+
+    <section class="order-status-panel" :class="orderStatusClass(order)">
+      <span class="section-kicker">Order Status</span>
+      <h1 class="status-heading" :class="orderStatusClass(order)">{{ orderStatusText(order) }}</h1>
+      <p>{{ deliveryText(order) }}</p>
+      <div class="order-status-actions">
+        <button v-if="order.status === 'WAIT_PAY'" class="primary-button" type="button" @click="pay">立即付款</button>
+        <button v-if="canCancel" class="secondary-button" type="button" @click="cancel">取消订单</button>
+        <button v-if="canComplete" class="primary-button" type="button" @click="complete">
+          确认收货
+        </button>
+        <button v-if="canRefund" class="secondary-button" type="button" @click="refundOpen = !refundOpen">退款申请</button>
+        <button v-if="canDispute" class="secondary-button" type="button" @click="disputeOpen = !disputeOpen">争议申请</button>
+      </div>
+      <div v-if="afterSaleSummary" class="order-after-sale-summary">
+        <strong>售后信息</strong>
+        <span>{{ afterSaleSummary }}</span>
+      </div>
+      <p v-if="message" class="form-message" :class="{ 'form-message--error': messageType === 'error' }">
+        {{ message }}
+      </p>
+    </section>
+
+    <section class="order-detail-grid">
+      <div class="order-detail-main">
+        <div class="order-block">
+          <h2>商品明细</h2>
+          <article v-for="item in order.items" :key="item.id" class="order-item-row">
+            <img :src="item.cover_image_url_snapshot" :alt="item.product_name_snapshot" />
+            <div>
+              <strong>{{ item.product_name_snapshot }}</strong>
+              <span>{{ itemSku(item) }}</span>
+            </div>
+            <b>￥{{ money(item.total_amount) }}</b>
+            <button
+              v-if="order.status === 'COMPLETED' && !item.review"
+              class="review-shortcut"
+              type="button"
+              @click="openReview(item.id)"
+            >
+              写评价
+            </button>
+          </article>
+        </div>
+
+        <div v-if="reviewOpen" class="order-block">
+          <h2>发表评价</h2>
+          <div class="rating-row">
+            <button
+              v-for="score in 5"
+              :key="score"
+              type="button"
+              :class="{ active: reviewForm.rating >= score }"
+              @click="reviewForm.rating = score"
+            >
+              ★
+            </button>
+          </div>
+          <textarea v-model.trim="reviewForm.content" rows="3" placeholder="写下商品体验"></textarea>
+          <button class="primary-button" type="button" @click="submitReview">提交评价</button>
+        </div>
+
+        <div v-if="refundOpen" class="order-block">
+          <h2>退款申请</h2>
+          <textarea v-model.trim="refundReason" rows="3" placeholder="填写退款原因"></textarea>
+          <button class="primary-button" type="button" @click="applyRefund">提交退款申请</button>
+        </div>
+
+        <div v-if="disputeOpen" class="order-block">
+          <h2>争议申请</h2>
+          <textarea v-model.trim="disputeReason" rows="3" placeholder="填写争议原因"></textarea>
+          <button class="primary-button" type="button" @click="applyDispute">提交争议申请</button>
+        </div>
+      </div>
+
+      <aside class="order-detail-side">
+        <div class="order-block">
+          <h2>订单信息</h2>
+          <p>订单号：{{ order.order_no }}</p>
+          <p>商家：{{ order.seller_shop_name || '拾季商家' }}</p>
+          <p>实付：￥{{ money(order.payable_amount) }}</p>
+          <p v-if="order.payment_expires_at">付款截止：{{ dateText(order.payment_expires_at) }}</p>
+          <p v-if="order.paid_at">付款时间：{{ dateText(order.paid_at) }}</p>
+          <p v-if="order.shipped_at">发货时间：{{ dateText(order.shipped_at) }}</p>
+        </div>
+        <div class="order-block">
+          <h2>收货信息</h2>
+          <p>{{ receiver.receiver_name }} {{ receiver.receiver_phone }}</p>
+          <p>{{ receiver.province }} {{ receiver.city }} {{ receiver.district }} {{ receiver.detail }}</p>
+        </div>
+      </aside>
+    </section>
+  </section>
+  <section v-else class="buyer-page">
+    <p v-if="message" class="form-message" :class="{ 'form-message--error': messageType === 'error' }">
+      {{ message }}
+    </p>
+    <p v-else-if="showLoading" class="loading-hint">正在读取订单详情</p>
+  </section>
+</template>
+
+<script setup>
+import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import {
+  cancelBuyerOrder,
+  completeBuyerOrder,
+  createBuyerReview,
+  createRefundApplication,
+  createRefundDispute,
+  getBuyerOrder,
+  payBuyerOrder,
+} from '../api/buyer'
+import { apiErrorMessage } from '../api/http'
+import { useDelayedBusy } from '../composables/useDelayedBusy'
+import { orderStatusClass, orderStatusText, refundStatusText } from '../utils/orderDisplay'
+import { formatSkuDisplay } from '../utils/sku'
+
+const route = useRoute()
+const router = useRouter()
+const order = ref(null)
+const refundOpen = ref(false)
+const disputeOpen = ref(false)
+const reviewOpen = ref(false)
+const refundReason = ref('')
+const disputeReason = ref('')
+const reviewForm = reactive({
+  order_item_id: null,
+  rating: 5,
+  content: '',
+})
+const message = ref('')
+const messageType = ref('info')
+const loading = ref(false)
+const showLoading = useDelayedBusy(loading)
+
+const receiver = computed(() => order.value?.receiver_snapshot_json || {})
+const blockingAfterSale = computed(() => ['pending', 'approved', 'disputed'].includes(order.value?.active_refund_status))
+const canCancel = computed(() => {
+  return order.value && (order.value.status === 'WAIT_PAY' || (order.value.status === 'PAID' && !order.value.is_shipped))
+})
+const canComplete = computed(() => order.value?.status === 'SHIPPED' && !blockingAfterSale.value)
+const canRefund = computed(() => {
+  return order.value && !order.value.active_refund_id && (order.value.status === 'SHIPPED' || order.value.status === 'COMPLETED')
+})
+const canDispute = computed(() => {
+  return order.value?.active_refund_id && order.value.active_refund_status === 'rejected'
+})
+const afterSaleSummary = computed(() => {
+  if (!order.value?.active_refund_id) return ''
+  const status = refundStatusText(order.value.active_refund_status)
+  if (order.value.active_refund_status === 'rejected') return `${status}，如仍有异议，可以发起争议申请。`
+  if (order.value.active_refund_status === 'disputed') return `${status}，管理员正在处理。`
+  return `${status}。`
+})
+
+function money(value) {
+  return Number(value || 0).toFixed(2)
+}
+
+function goBack() {
+  const value = Array.isArray(route.query.from) ? route.query.from[0] : route.query.from
+  if (typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && !value.startsWith('/orders/')) {
+    router.push(value)
+    return
+  }
+  router.push('/orders')
+}
+
+function itemSku(item) {
+  return formatSkuDisplay(item)
+}
+
+function dateText(value) {
+  return value ? new Date(value).toLocaleString() : ''
+}
+
+function deliveryText(value) {
+  if (value.status === 'WAIT_PAY') return '等待付款，卖家暂不可见'
+  if (['pending', 'approved'].includes(value.active_refund_status)) return '退款申请正在处理中'
+  if (value.active_refund_status === 'disputed') return '争议正在处理中'
+  if (value.status === 'REFUNDED') return '退款已完成'
+  if (!value.is_shipped && ['PAID', 'REFUND_PENDING'].includes(value.status)) return '等待商家发货'
+  if (value.expected_delivery_at) return `预计到货 ${dateText(value.expected_delivery_at)}`
+  if (value.is_shipped) return '商家已发货，等待确认收货'
+  return '订单已结束'
+}
+
+function setMessage(text, type = 'info') {
+  message.value = text
+  messageType.value = type
+}
+
+async function refreshOrder() {
+  order.value = await getBuyerOrder(route.params.id)
+}
+
+async function pay() {
+  try {
+    order.value = await payBuyerOrder(order.value.id)
+    setMessage('付款成功')
+  } catch (error) {
+    setMessage(apiErrorMessage(error, '付款失败'), 'error')
+  }
+}
+
+async function cancel() {
+  try {
+    order.value = await cancelBuyerOrder(order.value.id)
+    setMessage('订单已取消')
+  } catch (error) {
+    setMessage(apiErrorMessage(error, '取消订单失败'), 'error')
+  }
+}
+
+async function complete() {
+  try {
+    order.value = await completeBuyerOrder(order.value.id)
+    setMessage('已确认收货')
+  } catch (error) {
+    setMessage(apiErrorMessage(error, '确认收货失败'), 'error')
+  }
+}
+
+async function applyRefund() {
+  try {
+    await createRefundApplication({
+      order_id: order.value.id,
+      reason: refundReason.value || '买家申请退款',
+      description: refundReason.value || undefined,
+    })
+    refundOpen.value = false
+    await refreshOrder()
+    setMessage('退款申请已提交')
+  } catch (error) {
+    setMessage(apiErrorMessage(error, '退款申请失败'), 'error')
+  }
+}
+
+async function applyDispute() {
+  try {
+    await createRefundDispute({
+      refund_id: order.value.active_refund_id,
+      reason: disputeReason.value || '买家申请争议',
+      description: disputeReason.value || undefined,
+    })
+    disputeOpen.value = false
+    await refreshOrder()
+    setMessage('争议申请已提交')
+  } catch (error) {
+    setMessage(apiErrorMessage(error, '争议申请失败'), 'error')
+  }
+}
+
+function openReview(itemId) {
+  reviewForm.order_item_id = itemId
+  reviewForm.rating = 5
+  reviewForm.content = ''
+  reviewOpen.value = true
+}
+
+async function submitReview() {
+  try {
+    await createBuyerReview({
+      order_item_id: reviewForm.order_item_id,
+      rating: reviewForm.rating,
+      content: reviewForm.content || undefined,
+    })
+    reviewOpen.value = false
+    await refreshOrder()
+    setMessage('评价已发布')
+  } catch (error) {
+    setMessage(apiErrorMessage(error, '评价提交失败'), 'error')
+  }
+}
+
+onMounted(async () => {
+  loading.value = true
+  try {
+    await refreshOrder()
+    const reviewQuery = String(route.query.review || '')
+    if (reviewQuery && order.value.status === 'COMPLETED') {
+      const itemId = reviewQuery === 'first' ? order.value.items.find((item) => !item.review)?.id : Number(reviewQuery)
+      if (itemId) openReview(itemId)
+    }
+  } catch (error) {
+    setMessage(apiErrorMessage(error, '订单不存在或无权查看'), 'error')
+  } finally {
+    loading.value = false
+  }
+})
+</script>

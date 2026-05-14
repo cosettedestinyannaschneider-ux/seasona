@@ -1,0 +1,406 @@
+# Seasona API smoke tests
+
+GET http://127.0.0.1:8000/
+Accept: application/json
+
+###
+
+GET http://127.0.0.1:8000/api/v1/health
+Accept: application/json
+
+###
+
+GET http://127.0.0.1:8000/api/v1/openapi.json
+Accept: application/json
+
+###
+
+# Auth: buyer
+
+POST http://127.0.0.1:8000/api/v1/auth/buyer/register
+Content-Type: application/json
+
+{
+  "username": "buyerDemo1",
+  "password": "password123",
+  "register_method": "phone",
+  "phone": "13800000000",
+  "nickname": "Demo Buyer"
+}
+
+###
+
+POST http://127.0.0.1:8000/api/v1/auth/buyer/register
+Content-Type: application/json
+
+{
+  "username": "buyerEmailDemo1",
+  "password": "password123",
+  "register_method": "email",
+  "email": "buyer@example.com"
+}
+
+###
+
+POST http://127.0.0.1:8000/api/v1/auth/buyer/login
+Content-Type: application/json
+
+{
+  "identifier": "buyerDemo1",
+  "password": "password123"
+}
+
+###
+
+# Auth: seller
+
+POST http://127.0.0.1:8000/api/v1/auth/seller/register
+Content-Type: application/json
+
+{
+  "shop_name": "Demo Farm",
+  "username": "sellerDemo1",
+  "contact_name": "Demo Owner",
+  "phone": "13900000000",
+  "password": "password123",
+  "email": "seller@example.com",
+  "shop_description": "Course project demo merchant."
+}
+
+###
+
+POST http://127.0.0.1:8000/api/v1/auth/seller/login
+Content-Type: application/json
+
+{
+  "identifier": "sellerDemo1",
+  "password": "password123"
+}
+
+###
+
+# Auth: admin
+# Admin users must be seeded manually in the database.
+
+POST http://127.0.0.1:8000/api/v1/auth/admin/login
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "password123"
+}
+
+###
+
+GET http://127.0.0.1:8000/api/v1/auth/me
+Authorization: Bearer {{access_token}}
+Accept: application/json
+
+###
+
+PATCH http://127.0.0.1:8000/api/v1/auth/me
+Authorization: Bearer {{buyer_token}}
+Content-Type: application/json
+
+{
+  "nickname": "Demo Buyer",
+  "avatar_url": "/media/avatars/demo-buyer.jpg"
+}
+
+###
+
+POST http://127.0.0.1:8000/api/v1/auth/logout
+Authorization: Bearer {{access_token}}
+Accept: application/json
+
+###
+
+# Seller audit materials
+# Upload with multipart/form-data in Postman or an IDE REST client:
+# POST /api/v1/uploads/merchant-audit-images, form field: file
+
+PATCH http://127.0.0.1:8000/api/v1/seller/audit-materials
+Authorization: Bearer {{seller_token}}
+Content-Type: application/json
+
+{
+  "audit_material_text": "Business license and farm operation photos for audit.",
+  "audit_images_json": [
+    "/media/merchant-audit/demo-license.jpg"
+  ]
+}
+
+###
+
+POST http://127.0.0.1:8000/api/v1/seller/audit-materials/submit
+Authorization: Bearer {{seller_token}}
+Accept: application/json
+
+###
+
+PATCH http://127.0.0.1:8000/api/v1/seller/profile
+Authorization: Bearer {{seller_token}}
+Content-Type: application/json
+
+{
+  "shop_name": "Demo Farm",
+  "shop_logo_url": "/media/merchant-audit/demo-logo.jpg",
+  "shop_description": "Public shop description shown to buyers."
+}
+
+###
+
+# Admin merchant review
+
+GET http://127.0.0.1:8000/api/v1/admin/merchants?status_filter=pending
+Authorization: Bearer {{admin_token}}
+Accept: application/json
+
+###
+
+POST http://127.0.0.1:8000/api/v1/admin/merchants/1/approve
+Authorization: Bearer {{admin_token}}
+Content-Type: application/json
+
+{
+  "reason": "Approved for course demo."
+}
+
+###
+
+# Search and AI
+
+GET http://127.0.0.1:8000/api/v1/search?q=tomato&sort_by=relevance&page=1&page_size=12
+Accept: application/json
+
+###
+
+POST http://127.0.0.1:8000/api/v1/admin/search/reindex
+Authorization: Bearer {{admin_token}}
+Accept: application/json
+
+###
+
+POST http://127.0.0.1:8000/api/v1/ai/chat
+Authorization: Bearer {{buyer_token}}
+Content-Type: application/json
+
+{
+  "message": "I want to cook tomato scrambled eggs. Help me prepare ingredients.",
+  "candidate_limit": 5
+}
+
+###
+
+# Product setup
+
+POST http://127.0.0.1:8000/api/v1/admin/categories
+Authorization: Bearer {{admin_token}}
+Content-Type: application/json
+
+{
+  "name": "Vegetables",
+  "sort_order": 1,
+  "is_active": true
+}
+
+###
+
+POST http://127.0.0.1:8000/api/v1/seller/products
+Authorization: Bearer {{seller_token}}
+Content-Type: application/json
+
+{
+  "category_id": 1,
+  "name": "Fresh Tomato",
+  "description": "Good for stir-frying, soup, and tomato egg dishes.",
+  "origin_place": "Hangzhou, Zhejiang",
+  "cover_image_url": "/media/products/demo-tomato.jpg",
+  "skus": [
+    {
+      "spec_name": "500g pack",
+      "unit": "pack",
+      "price": "8.80",
+      "original_price": "9.90",
+      "stock_available": 100
+    }
+  ],
+  "images": [],
+  "traceability": {
+    "trace_code": "TRACE-DEMO-TOMATO-001",
+    "farm_name": "Demo Farm",
+    "harvest_date": "2026-05-01",
+    "inspection_result": "Passed",
+    "cold_chain_info": "Normal temperature delivery",
+    "trace_steps_json": [
+      {
+        "title": "Harvest",
+        "content": "Picked and sorted in the morning.",
+        "happened_at": "2026-05-01"
+      }
+    ]
+  }
+}
+
+###
+
+POST http://127.0.0.1:8000/api/v1/seller/products/1/submit
+Authorization: Bearer {{seller_token}}
+Accept: application/json
+
+###
+
+POST http://127.0.0.1:8000/api/v1/admin/products/1/approve
+Authorization: Bearer {{admin_token}}
+Content-Type: application/json
+
+{
+  "reason": "Product data is complete."
+}
+
+###
+
+# Buyer wallet/cart/order flow
+
+POST http://127.0.0.1:8000/api/v1/orders/wallet/recharge
+Authorization: Bearer {{buyer_token}}
+Content-Type: application/json
+
+{
+  "amount": "500.00",
+  "idempotency_key": "wallet-recharge-0001"
+}
+
+###
+
+GET http://127.0.0.1:8000/api/v1/orders/wallet
+Authorization: Bearer {{buyer_token}}
+Accept: application/json
+
+###
+
+POST http://127.0.0.1:8000/api/v1/cart/items
+Authorization: Bearer {{buyer_token}}
+Content-Type: application/json
+
+{
+  "sku_id": 1,
+  "quantity": 2,
+  "selected": true
+}
+
+###
+
+POST http://127.0.0.1:8000/api/v1/orders
+Authorization: Bearer {{buyer_token}}
+Content-Type: application/json
+
+{
+  "idempotency_key": "demo-order-0001",
+  "auto_pay": false,
+  "cart_item_ids": [1],
+  "receiver_snapshot": {
+    "receiver_name": "Demo Buyer",
+    "receiver_phone": "13800000000",
+    "province": "Zhejiang",
+    "city": "Hangzhou",
+    "district": "Xihu",
+    "detail": "Demo Road 1"
+  }
+}
+
+###
+
+POST http://127.0.0.1:8000/api/v1/orders/1/pay
+Authorization: Bearer {{buyer_token}}
+Accept: application/json
+
+###
+
+GET http://127.0.0.1:8000/api/v1/orders
+Authorization: Bearer {{buyer_token}}
+Accept: application/json
+
+###
+
+POST http://127.0.0.1:8000/api/v1/seller/orders/1/ship
+Authorization: Bearer {{seller_token}}
+Accept: application/json
+
+###
+
+POST http://127.0.0.1:8000/api/v1/orders/1/complete
+Authorization: Bearer {{buyer_token}}
+Accept: application/json
+
+###
+
+# Refunds, disputes, and reviews
+
+POST http://127.0.0.1:8000/api/v1/refunds
+Authorization: Bearer {{buyer_token}}
+Content-Type: application/json
+
+{
+  "order_id": 1,
+  "reason": "Product does not match expectation.",
+  "description": "Demo refund request."
+}
+
+###
+
+GET http://127.0.0.1:8000/api/v1/admin/refunds
+Authorization: Bearer {{admin_token}}
+Accept: application/json
+
+###
+
+GET http://127.0.0.1:8000/api/v1/seller/refunds
+Authorization: Bearer {{seller_token}}
+Accept: application/json
+
+###
+
+POST http://127.0.0.1:8000/api/v1/seller/refunds/1/reject
+Authorization: Bearer {{seller_token}}
+Content-Type: application/json
+
+{
+  "seller_note": "Seller rejects this demo refund request."
+}
+
+###
+
+POST http://127.0.0.1:8000/api/v1/orders/reviews
+Authorization: Bearer {{buyer_token}}
+Content-Type: application/json
+
+{
+  "order_item_id": 1,
+  "rating": 5,
+  "content": "Fresh product and complete packaging.",
+  "images_json": []
+}
+
+###
+
+POST http://127.0.0.1:8000/api/v1/refunds/disputes
+Authorization: Bearer {{buyer_token}}
+Content-Type: application/json
+
+{
+  "refund_id": 1,
+  "reason": "Refund handling dispute.",
+  "description": "Please ask admin to review.",
+  "evidence_images_json": []
+}
+
+###
+
+POST http://127.0.0.1:8000/api/v1/admin/disputes/1/approve
+Authorization: Bearer {{admin_token}}
+Content-Type: application/json
+
+{
+  "resolution_note": "Admin approved the buyer dispute."
+}
