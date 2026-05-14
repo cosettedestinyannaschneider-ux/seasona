@@ -1,5 +1,4 @@
 import { http } from './http'
-import { categories as sampleCategories, sampleProducts } from '../data/sampleProducts'
 
 function toNumber(value) {
   return Number(value ?? 0)
@@ -68,36 +67,13 @@ function flattenCategories(items = []) {
   return items.flatMap((item) => [item, ...flattenCategories(item.children || [])])
 }
 
-function filterSamples(params = {}) {
-  const query = String(params.q || '').trim().toLowerCase()
-  const categoryId = params.category_id ? Number(params.category_id) : null
-  let items = sampleProducts.filter((item) => {
-    const text = `${item.name} ${item.description} ${item.origin_place} ${item.category_name}`.toLowerCase()
-    return (!query || text.includes(query)) && (!categoryId || item.category_id === categoryId)
-  })
-  if (params.sort_by === 'price_desc') items.sort((a, b) => b.min_price - a.min_price)
-  if (params.sort_by === 'price_asc') items.sort((a, b) => a.min_price - b.min_price)
-  if (params.sort_by === 'stock_desc') items.sort((a, b) => b.stock_total - a.stock_total)
-  return items.map(normalizeProduct)
-}
-
 export async function searchProducts(params = {}) {
-  try {
-    const { data } = await http.get('/api/v1/search', { params })
-    const rawItems = data.items ?? data.hits ?? []
-    return {
-      items: rawItems.map(normalizeProduct),
-      total: data.total ?? rawItems.length,
-      source: 'api',
-    }
-  } catch (error) {
-    const items = filterSamples(params)
-    return {
-      items,
-      total: items.length,
-      source: 'sample',
-      error,
-    }
+  const { data } = await http.get('/api/v1/search', { params })
+  const rawItems = data.items ?? data.hits ?? []
+  return {
+    items: rawItems.map(normalizeProduct),
+    total: data.total ?? rawItems.length,
+    source: 'api',
   }
 }
 
@@ -118,21 +94,12 @@ export async function getMerchantStore(merchantId) {
 }
 
 export async function listCategories() {
-  try {
-    const { data } = await http.get('/api/v1/products/categories')
-    const roots = (data.items || data || []).map(normalizeCategoryNode)
-    return {
-      items: flattenCategories(roots),
-      tree: roots,
-      source: 'api',
-    }
-  } catch (error) {
-    return {
-      items: sampleCategories,
-      tree: sampleCategories,
-      source: 'sample',
-      error,
-    }
+  const { data } = await http.get('/api/v1/products/categories')
+  const roots = (data.items || data || []).map(normalizeCategoryNode)
+  return {
+    items: flattenCategories(roots),
+    tree: roots,
+    source: 'api',
   }
 }
 

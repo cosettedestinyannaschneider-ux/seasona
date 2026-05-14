@@ -51,14 +51,13 @@ import { useRouter } from 'vue-router'
 import SearchBox from '../components/search/SearchBox.vue'
 import ProductCard from '../components/product/ProductCard.vue'
 import { listCategories, searchProducts } from '../api/products'
-import { categories as sampleCategories, sampleProducts } from '../data/sampleProducts'
 import { useDelayedBusy } from '../composables/useDelayedBusy'
 
 const router = useRouter()
 const query = ref('')
-const categories = ref(sampleCategories.slice(0, 5))
-const featured = ref(sampleProducts.slice(0, 4))
-const showcase = ref([sampleProducts[0], sampleProducts[2], sampleProducts[4], sampleProducts[5]].filter(Boolean))
+const categories = ref([])
+const featured = ref([])
+const showcase = ref([])
 const loading = ref(false)
 const showLoading = useDelayedBusy(loading)
 

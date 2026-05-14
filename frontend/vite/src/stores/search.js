@@ -10,7 +10,7 @@ export const useSearchStore = defineStore('search', {
     items: [],
     total: 0,
     loading: false,
-    source: 'sample',
+    source: 'api',
   }),
   actions: {
     async run(overrides = {}) {

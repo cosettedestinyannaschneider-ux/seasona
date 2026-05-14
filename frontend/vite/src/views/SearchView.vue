@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <section class="search-page">
     <Teleport to="#header-search-slot">
       <form v-if="isDocked" class="header-search-mini" @submit.prevent="runSearch">
@@ -49,7 +49,7 @@
 
         <section class="filter-section">
           <div class="filter-heading">
-            <span>排序</span>
+            <span>鎺掑簭</span>
             <small>{{ currentSortLabel }}</small>
           </div>
           <div class="filter-options">
@@ -70,7 +70,7 @@
       <div class="search-results">
         <div class="result-bar">
           <span>{{ showSearchLoading ? '正在加载商品' : `共 ${search.total} 个结果` }}</span>
-          <span>{{ search.source === 'api' ? '实时结果' : '预览结果' }}</span>
+          <span>实时结果</span>
         </div>
 
         <div v-if="showSearchLoading" class="loading-hint loading-hint--block">正在加载商品</div>
@@ -194,3 +194,4 @@ watch(
   },
 )
 </script>
+
