@@ -45,6 +45,7 @@ from app.schemas.wallet import SellerEarningsPublic, WalletLedgerListResponse, W
 
 
 REFUND_SELLER_RESPONSE_DAYS = 3
+WALLET_BALANCE_LIMIT = Decimal("9999999999.99")
 ACTIVE_REFUND_STATUSES = (
     RefundStatus.PENDING,
     RefundStatus.REJECTED,
@@ -408,6 +409,14 @@ def _write_ledger(
     )
 
 
+def _ensure_wallet_balance_limit(available_balance: Decimal, frozen_balance: Decimal) -> None:
+    if available_balance > WALLET_BALANCE_LIMIT or frozen_balance > WALLET_BALANCE_LIMIT:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Wallet balance limit exceeded.",
+        )
+
+
 def _apply_wallet_change(
     db: Any,
     *,
@@ -445,8 +454,11 @@ def _apply_wallet_change(
 
     before_available = wallet.available_balance
     before_frozen = wallet.frozen_balance
-    wallet.available_balance += available_delta
-    wallet.frozen_balance += frozen_delta
+    next_available = wallet.available_balance + available_delta
+    next_frozen = wallet.frozen_balance + frozen_delta
+    _ensure_wallet_balance_limit(next_available, next_frozen)
+    wallet.available_balance = next_available
+    wallet.frozen_balance = next_frozen
     wallet.version += 1
     _write_ledger(
         db,
