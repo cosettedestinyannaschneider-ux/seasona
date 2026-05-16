@@ -7,6 +7,7 @@ from app.models.ai import AiChatMessage, AiChatSession
 from app.models.order import (
     Cart,
     CartItem,
+    CheckoutPayment,
     Order,
     OrderItem,
     OrderStatusLog,
@@ -30,6 +31,7 @@ __all__ = [
     "Address",
     "Cart",
     "CartItem",
+    "CheckoutPayment",
     "MerchantProfile",
     "Order",
     "OrderItem",

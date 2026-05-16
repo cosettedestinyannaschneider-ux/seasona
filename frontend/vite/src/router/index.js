@@ -12,6 +12,7 @@ const routes = [
   { path: '/ai', name: 'ai', component: () => import('../views/AiView.vue') },
   { path: '/cart', name: 'cart', component: () => import('../views/CartView.vue') },
   { path: '/checkout', name: 'checkout', component: () => import('../views/CheckoutView.vue') },
+  { path: '/payments/:id', name: 'buyer-payment-detail', component: () => import('../views/PaymentDetailBuyerView.vue') },
   { path: '/profile', name: 'buyer-profile', component: () => import('../views/BuyerProfileView.vue') },
   { path: '/profile/edit', name: 'buyer-profile-edit', component: () => import('../views/ProfileEditView.vue') },
   { path: '/wallet', name: 'buyer-wallet', component: () => import('../views/WalletView.vue') },

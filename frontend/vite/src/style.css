@@ -3475,6 +3475,50 @@ main {
     rgba(255, 255, 255, 0.86);
 }
 
+.order-status-panel__top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(15rem, 24rem);
+  gap: 1rem;
+  align-items: start;
+}
+
+.order-status-panel__main {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.order-status-panel__aside {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.order-status-panel__aside article {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.82rem 0.9rem;
+  border: 1px solid rgba(222, 90, 68, 0.18);
+  border-radius: 0.9rem;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 8px 20px rgba(37, 66, 42, 0.06);
+}
+
+.order-status-panel__aside span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 780;
+}
+
+.order-status-panel__aside strong {
+  color: var(--tomato);
+  font-size: 1.05rem;
+}
+
+.order-status-panel__aside small {
+  color: rgba(115, 79, 54, 0.82);
+  line-height: 1.45;
+}
+
 .order-status-panel.status-tone-green {
   border-color: rgba(47, 125, 79, 0.24);
   background:
@@ -3514,24 +3558,6 @@ main {
   flex-wrap: wrap;
   gap: 0.6rem;
   margin-top: 0.25rem;
-}
-
-.order-after-sale-summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.45rem 0.7rem;
-  width: fit-content;
-  max-width: 100%;
-  padding: 0.72rem 0.85rem;
-  color: var(--tomato);
-  border: 1px solid rgba(222, 90, 68, 0.18);
-  border-radius: 0.85rem;
-  background: rgba(255, 245, 231, 0.82);
-}
-
-.order-after-sale-summary span {
-  color: rgba(115, 79, 54, 0.82);
 }
 
 .order-detail-grid {
@@ -6269,6 +6295,7 @@ main {
   .buyer-overview,
   .wallet-layout,
   .order-detail-grid,
+  .order-status-panel__top,
   .order-list--compact,
   .profile-edit-page,
   .seller-console,

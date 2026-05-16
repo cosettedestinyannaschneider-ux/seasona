@@ -45,6 +45,13 @@ class OrderStatus(StrEnum):
     DISPUTED = "DISPUTED"
 
 
+class PaymentStatus(StrEnum):
+    WAIT_PAY = "WAIT_PAY"
+    PAID = "PAID"
+    CANCELLED = "CANCELLED"
+    EXPIRED = "EXPIRED"
+
+
 class RefundStatus(StrEnum):
     PENDING = "pending"
     APPROVED = "approved"

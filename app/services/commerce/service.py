@@ -16,6 +16,7 @@ from app.models.enums import (
     LedgerDirection,
     MerchantAuditStatus,
     OrderStatus,
+    PaymentStatus,
     ProductStatus,
     RefundStatus,
     ReviewStatus,
@@ -27,6 +28,7 @@ from app.models.enums import (
 from app.models.order import (
     Cart,
     CartItem,
+    CheckoutPayment,
     Order,
     OrderItem,
     OrderStatusLog,
@@ -38,7 +40,14 @@ from app.models.user import MerchantProfile, UserAccount
 from app.models.wallet import WalletAccount, WalletLedger
 from app.schemas.cart import CartItemPublic, CartPublic
 from app.schemas.dispute import DisputeListResponse, DisputePublic
-from app.schemas.order import OrderDetail, OrderItemPublic, OrderListResponse, OrderPublic
+from app.schemas.order import (
+    CheckoutPaymentDetail,
+    CheckoutPaymentListResponse,
+    OrderDetail,
+    OrderItemPublic,
+    OrderListResponse,
+    OrderPublic,
+)
 from app.schemas.refund import RefundListResponse, RefundPublic
 from app.schemas.review import ReviewListResponse, ReviewProductListResponse, ReviewProductSummary, ReviewPublic
 from app.schemas.wallet import SellerEarningsPublic, WalletLedgerListResponse, WalletLedgerPublic, WalletPublic
@@ -789,6 +798,11 @@ def _generate_order_no() -> str:
     return f"SO{timestamp}{uuid4().hex[:10].upper()}"
 
 
+def _generate_payment_no() -> str:
+    timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+    return f"PAY{timestamp}{uuid4().hex[:10].upper()}"
+
+
 def _split_order_idempotency_key(base_key: str, seller_id: int, split_count: int) -> str:
     if split_count <= 1:
         return base_key
@@ -863,15 +877,75 @@ def _expire_wait_pay_order_locked(db: Any, order: Order, *, now: datetime | None
     return True
 
 
+def _get_checkout_payment_for_update(db: Any, payment_id: int) -> CheckoutPayment:
+    payment = db.execute(
+        select(CheckoutPayment)
+        .where(CheckoutPayment.id == payment_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+    if payment is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payment not found.")
+    return payment
+
+
+def _payment_orders_for_update(db: Any, payment_id: int) -> list[Order]:
+    return db.execute(
+        select(Order)
+        .where(Order.payment_id == payment_id)
+        .order_by(Order.id.asc())
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalars().all()
+
+
+def _expire_checkout_payment_locked(
+    db: Any,
+    payment: CheckoutPayment,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    now = now or datetime.now(UTC)
+    if payment.status != PaymentStatus.WAIT_PAY:
+        return False
+    if not _payment_deadline_reached(payment.payment_expires_at, now):
+        return False
+
+    orders = _payment_orders_for_update(db, payment.id)
+    for order in orders:
+        if order.status != OrderStatus.WAIT_PAY:
+            continue
+        before_status = order.status
+        _release_order_locked_stock(db, order)
+        order.status = OrderStatus.EXPIRED
+        _write_order_status_log(
+            db,
+            order,
+            from_status=before_status,
+            to_status=OrderStatus.EXPIRED,
+            operator_id=None,
+            note="Payment window expired; locked stock released.",
+        )
+    payment.status = PaymentStatus.EXPIRED
+    payment.expired_at = now
+    return True
+
+
 def _expire_overdue_wait_pay_orders(db: Any, user: Any) -> int:
     now = datetime.now(UTC)
+    payment_filters = [
+        CheckoutPayment.status == PaymentStatus.WAIT_PAY,
+        CheckoutPayment.payment_expires_at <= now,
+    ]
     filters = [
         Order.status == OrderStatus.WAIT_PAY,
+        Order.payment_id.is_(None),
         Order.payment_expires_at.is_not(None),
         Order.payment_expires_at <= now,
     ]
     role = _role_value(user)
     if role == UserRole.BUYER.value:
+        payment_filters.append(CheckoutPayment.buyer_id == user.id)
         filters.append(Order.buyer_id == user.id)
     elif role == UserRole.SELLER.value:
         return 0
@@ -879,6 +953,17 @@ def _expire_overdue_wait_pay_orders(db: Any, user: Any) -> int:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unsupported role.")
 
     expired_count = 0
+    payment_statement = (
+        select(CheckoutPayment)
+        .where(and_(*payment_filters))
+        .order_by(CheckoutPayment.id.asc())
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    for payment in db.execute(payment_statement).scalars().all():
+        if _expire_checkout_payment_locked(db, payment, now=now):
+            expired_count += 1
+
     statement = (
         select(Order)
         .where(and_(*filters))
@@ -1060,10 +1145,20 @@ def create_orders_from_cart(
     idempotency_key: str,
     cart_item_ids: Sequence[int] | None = None,
     auto_pay: bool = False,
-) -> list[OrderDetail]:
+) -> tuple[list[OrderDetail], CheckoutPaymentDetail | None]:
     _ensure_buyer(buyer)
     cart = _get_or_create_cart(db, buyer.id)
-    existing = db.execute(
+    existing_payment = db.execute(
+        select(CheckoutPayment).where(
+            CheckoutPayment.buyer_id == buyer.id,
+            CheckoutPayment.idempotency_key == idempotency_key,
+        )
+    ).scalar_one_or_none()
+    if existing_payment is not None:
+        payment_detail = _checkout_payment_to_detail(db, buyer, existing_payment)
+        return payment_detail.orders, payment_detail
+
+    existing_orders = db.execute(
         select(Order)
         .where(
             Order.buyer_id == buyer.id,
@@ -1074,8 +1169,10 @@ def create_orders_from_cart(
         )
         .order_by(Order.id.asc())
     ).scalars().all()
-    if existing:
-        return [get_order_detail(db, buyer, order.id) for order in existing]
+    if existing_orders:
+        orders = [get_order_detail(db, buyer, order.id) for order in existing_orders]
+        payment = db.get(CheckoutPayment, existing_orders[0].payment_id) if existing_orders[0].payment_id else None
+        return orders, (_checkout_payment_to_detail(db, buyer, payment) if payment else None)
 
     selected_ids = list(cart_item_ids) if cart_item_ids else None
     locked_items = _cart_items_for_update(db, cart.id, selected_ids)
@@ -1097,10 +1194,31 @@ def create_orders_from_cart(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cart contains unavailable products.")
         grouped_rows[row.ProductSpu.merchant_id].append(row)
 
-    created_orders: list[Order] = []
     now = datetime.now(UTC)
     expected_delivery_at = now + timedelta(days=3)
     payment_expires_at = now + timedelta(minutes=20)
+    payment_total_amount = sum(
+        (row.ProductSku.price * row.CartItem.quantity for row in rows),
+        Decimal("0.00"),
+    )
+    payment = CheckoutPayment(
+        payment_no=_generate_payment_no(),
+        buyer_id=buyer.id,
+        status=PaymentStatus.WAIT_PAY,
+        total_amount=payment_total_amount,
+        freight_amount=Decimal("0.00"),
+        payable_amount=payment_total_amount,
+        receiver_snapshot_json=receiver_snapshot,
+        payment_expires_at=payment_expires_at,
+        paid_at=None,
+        cancelled_at=None,
+        expired_at=None,
+        idempotency_key=idempotency_key,
+    )
+    db.add(payment)
+    db.flush()
+
+    split_count = len(grouped_rows)
     for seller_id, seller_rows in grouped_rows.items():
         total_amount = sum(
             (row.ProductSku.price * row.CartItem.quantity for row in seller_rows),
@@ -1108,6 +1226,7 @@ def create_orders_from_cart(
         )
         order = Order(
             order_no=_generate_order_no(),
+            payment_id=payment.id,
             buyer_id=buyer.id,
             seller_id=seller_id,
             status=OrderStatus.WAIT_PAY,
@@ -1120,11 +1239,7 @@ def create_orders_from_cart(
             paid_at=None,
             is_shipped=False,
             shipped_at=None,
-            idempotency_key=_split_order_idempotency_key(
-                idempotency_key,
-                seller_id,
-                len(grouped_rows),
-            ),
+            idempotency_key=_split_order_idempotency_key(idempotency_key, seller_id, split_count),
             checkout_idempotency_key=idempotency_key,
         )
         db.add(order)
@@ -1162,15 +1277,13 @@ def create_orders_from_cart(
             )
             db.delete(item)
 
-        created_orders.append(order)
-
     db.flush()
     if auto_pay:
-        for order in created_orders:
-            _pay_locked_order(db, buyer, order, allow_partial=True)
+        _pay_checkout_payment_locked(db, buyer, payment, allow_partial=True)
 
     db.flush()
-    return [get_order_detail(db, buyer, order.id) for order in created_orders]
+    payment_detail = _checkout_payment_to_detail(db, buyer, payment)
+    return payment_detail.orders, payment_detail
 
 
 def create_order_from_sku(
@@ -1210,17 +1323,37 @@ def create_order_from_sku(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Insufficient SKU stock.")
 
     now = datetime.now(UTC)
+    payable_amount = sku.price * quantity
+    payment_expires_at = now + timedelta(minutes=20)
+    payment = CheckoutPayment(
+        payment_no=_generate_payment_no(),
+        buyer_id=buyer.id,
+        status=PaymentStatus.WAIT_PAY,
+        total_amount=payable_amount,
+        freight_amount=Decimal("0.00"),
+        payable_amount=payable_amount,
+        receiver_snapshot_json=receiver_snapshot,
+        payment_expires_at=payment_expires_at,
+        paid_at=None,
+        cancelled_at=None,
+        expired_at=None,
+        idempotency_key=idempotency_key,
+    )
+    db.add(payment)
+    db.flush()
+
     order = Order(
         order_no=_generate_order_no(),
+        payment_id=payment.id,
         buyer_id=buyer.id,
         seller_id=spu.merchant_id,
         status=OrderStatus.WAIT_PAY,
-        total_amount=sku.price * quantity,
+        total_amount=payable_amount,
         freight_amount=Decimal("0.00"),
-        payable_amount=sku.price * quantity,
+        payable_amount=payable_amount,
         receiver_snapshot_json=receiver_snapshot,
         expected_delivery_at=now + timedelta(days=3),
-        payment_expires_at=now + timedelta(minutes=20),
+        payment_expires_at=payment_expires_at,
         paid_at=None,
         is_shipped=False,
         shipped_at=None,
@@ -1257,7 +1390,7 @@ def create_order_from_sku(
     )
     db.flush()
     if auto_pay:
-        _pay_locked_order(db, buyer, order, allow_partial=True)
+        _pay_checkout_payment_locked(db, buyer, payment, allow_partial=True)
     db.flush()
     return get_order_detail(db, buyer, order.id)
 
@@ -1331,6 +1464,7 @@ def _order_to_public(
     return OrderPublic(
         id=order.id,
         order_no=order.order_no,
+        payment_id=order.payment_id,
         primary_product_name=summary.get("primary_product_name"),
         item_count=summary.get("item_count", 0),
         buyer_id=order.buyer_id,
@@ -1389,6 +1523,44 @@ def _order_to_detail(db: Any, row: Any, items: Sequence[OrderItem]) -> OrderDeta
     )
 
 
+def _payment_order_details(db: Any, buyer: Any, payment_id: int) -> list[OrderDetail]:
+    rows = db.execute(
+        _order_query_for_user(buyer)
+        .where(Order.payment_id == payment_id)
+        .order_by(Order.id.asc())
+    ).all()
+    return [
+        _order_to_detail(db, row, _order_item_rows(db, row.Order.id))
+        for row in rows
+    ]
+
+
+def _checkout_payment_to_detail(db: Any, buyer: Any, payment: CheckoutPayment) -> CheckoutPaymentDetail:
+    orders = _payment_order_details(db, buyer, payment.id)
+    flattened_items = [item for order in orders for item in order.items]
+    first_item = flattened_items[0] if flattened_items else None
+    return CheckoutPaymentDetail(
+        id=payment.id,
+        payment_no=payment.payment_no,
+        buyer_id=payment.buyer_id,
+        status=payment.status,
+        total_amount=payment.total_amount,
+        freight_amount=payment.freight_amount,
+        payable_amount=payment.payable_amount,
+        receiver_snapshot_json=payment.receiver_snapshot_json,
+        payment_expires_at=payment.payment_expires_at,
+        paid_at=payment.paid_at,
+        cancelled_at=payment.cancelled_at,
+        expired_at=payment.expired_at,
+        primary_product_name=first_item.product_name_snapshot if first_item else None,
+        item_count=len(flattened_items),
+        order_count=len(orders),
+        created_at=payment.created_at,
+        updated_at=payment.updated_at,
+        orders=orders,
+    )
+
+
 def _order_query_for_user(user: Any):
     statement = (
         select(
@@ -1424,6 +1596,8 @@ def list_orders(
     _expire_overdue_wait_pay_orders(db, user)
     _escalate_overdue_refunds(db, user=user)
     statement = _order_query_for_user(user)
+    if _role_value(user) == UserRole.BUYER.value:
+        statement = statement.where(or_(Order.status != OrderStatus.WAIT_PAY, Order.payment_id.is_(None)))
     if status_filter is not None:
         statement = statement.where(Order.status == status_filter)
     total = db.execute(select(func.count()).select_from(statement.subquery())).scalar_one()
@@ -1448,6 +1622,42 @@ def list_orders(
     )
 
 
+def list_checkout_payments(
+    db: Any,
+    buyer: Any,
+    *,
+    status_filter: PaymentStatus | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> CheckoutPaymentListResponse:
+    _ensure_buyer(buyer)
+    _expire_overdue_wait_pay_orders(db, buyer)
+    statement = select(CheckoutPayment).where(CheckoutPayment.buyer_id == buyer.id)
+    if status_filter is not None:
+        statement = statement.where(CheckoutPayment.status == status_filter)
+    total = db.execute(select(func.count()).select_from(statement.subquery())).scalar_one()
+    payments = db.execute(
+        statement.order_by(CheckoutPayment.created_at.desc(), CheckoutPayment.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).scalars().all()
+    return CheckoutPaymentListResponse(
+        items=[_checkout_payment_to_detail(db, buyer, payment) for payment in payments],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+def get_checkout_payment_detail(db: Any, buyer: Any, payment_id: int) -> CheckoutPaymentDetail:
+    _ensure_buyer(buyer)
+    _expire_overdue_wait_pay_orders(db, buyer)
+    payment = db.get(CheckoutPayment, payment_id)
+    if payment is None or payment.buyer_id != buyer.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payment not found.")
+    return _checkout_payment_to_detail(db, buyer, payment)
+
+
 def get_order_detail(db: Any, user: Any, order_id: int) -> OrderDetail:
     _expire_overdue_wait_pay_orders(db, user)
     _escalate_overdue_refunds(db, user=user)
@@ -1470,7 +1680,117 @@ def _get_order_for_update(db: Any, order_id: int) -> Order:
     return order
 
 
+def _pay_checkout_payment_locked(
+    db: Any,
+    buyer: Any,
+    payment: CheckoutPayment,
+    *,
+    allow_partial: bool = False,
+) -> None:
+    if payment.status == PaymentStatus.WAIT_PAY and _payment_deadline_reached(
+        payment.payment_expires_at,
+        datetime.now(UTC),
+    ):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Payment window has expired.")
+    if payment.status != PaymentStatus.WAIT_PAY:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only wait-pay payments can be paid.")
+    orders = _payment_orders_for_update(db, payment.id)
+    if not orders:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Payment has no orders.")
+
+    payable_amount = Decimal("0.00")
+    for order in orders:
+        if order.buyer_id != buyer.id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payment not found.")
+        if order.status != OrderStatus.WAIT_PAY:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Payment contains non-wait-pay orders.")
+        if not _order_item_rows(db, order.id):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Order has no items.")
+        _ensure_order_seller_can_receive_payment(db, order)
+        payable_amount += order.payable_amount
+
+    if payable_amount != payment.payable_amount:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Payment amount is inconsistent.")
+
+    before_status_by_order = {order.id: order.status for order in orders}
+    now = datetime.now(UTC)
+    try:
+        _freeze_wallet_amount(
+            db,
+            buyer.id,
+            payment.payable_amount,
+            reference_type="checkout_payment_pay",
+            reference_id=payment.id,
+            allow_partial=allow_partial,
+        )
+        payment.status = PaymentStatus.PAID
+        payment.paid_at = now
+        for order in orders:
+            order.status = OrderStatus.PAID
+            order.paid_at = now
+            _write_order_status_log(
+                db,
+                order,
+                from_status=before_status_by_order[order.id],
+                to_status=OrderStatus.PAID,
+                operator_id=buyer.id,
+                note="Buyer paid checkout payment and wallet amount frozen.",
+            )
+    except HTTPException:
+        if allow_partial:
+            payment.status = PaymentStatus.CANCELLED
+            payment.cancelled_at = datetime.now(UTC)
+            for order in orders:
+                if order.status == OrderStatus.WAIT_PAY:
+                    before_status = order.status
+                    _release_order_locked_stock(db, order)
+                    order.status = OrderStatus.CANCELLED
+                    _write_order_status_log(
+                        db,
+                        order,
+                        from_status=before_status,
+                        to_status=OrderStatus.CANCELLED,
+                        operator_id=buyer.id,
+                        note="Auto-pay failed; order cancelled and locked stock released.",
+                    )
+        raise
+
+
+def _cancel_checkout_payment_locked(
+    db: Any,
+    buyer: Any,
+    payment: CheckoutPayment,
+) -> None:
+    if payment.status in {PaymentStatus.CANCELLED, PaymentStatus.EXPIRED}:
+        return
+    if payment.status != PaymentStatus.WAIT_PAY:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only wait-pay payments can be cancelled.")
+
+    orders = _payment_orders_for_update(db, payment.id)
+    now = datetime.now(UTC)
+    for order in orders:
+        if order.buyer_id != buyer.id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payment not found.")
+        if order.status != OrderStatus.WAIT_PAY:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Payment contains non-wait-pay orders.")
+        before_status = order.status
+        _release_order_locked_stock(db, order)
+        order.status = OrderStatus.CANCELLED
+        _write_order_status_log(
+            db,
+            order,
+            from_status=before_status,
+            to_status=OrderStatus.CANCELLED,
+            operator_id=buyer.id,
+            note="Buyer cancelled checkout payment; locked stock released.",
+        )
+    payment.status = PaymentStatus.CANCELLED
+    payment.cancelled_at = now
+
+
 def _pay_locked_order(db: Any, buyer: Any, order: Order, *, allow_partial: bool = False) -> None:
+    if order.payment_id is not None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Please pay through the checkout payment.")
     if order.status == OrderStatus.WAIT_PAY and _payment_deadline_reached(order.payment_expires_at, datetime.now(UTC)):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Order payment window has expired.")
     if order.status != OrderStatus.WAIT_PAY:
@@ -1524,11 +1844,41 @@ def _release_order_locked_stock(db: Any, order: Order) -> None:
         sku.version += 1
 
 
+def pay_checkout_payment(db: Any, buyer: Any, payment_id: int) -> CheckoutPaymentDetail:
+    _ensure_buyer(buyer)
+    payment = _get_checkout_payment_for_update(db, payment_id)
+    if payment.buyer_id != buyer.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payment not found.")
+    if _expire_checkout_payment_locked(db, payment):
+        db.flush()
+        return _checkout_payment_to_detail(db, buyer, payment)
+    if payment.status == PaymentStatus.PAID:
+        return _checkout_payment_to_detail(db, buyer, payment)
+    _pay_checkout_payment_locked(db, buyer, payment)
+    db.flush()
+    return _checkout_payment_to_detail(db, buyer, payment)
+
+
+def cancel_checkout_payment(db: Any, buyer: Any, payment_id: int) -> CheckoutPaymentDetail:
+    _ensure_buyer(buyer)
+    payment = _get_checkout_payment_for_update(db, payment_id)
+    if payment.buyer_id != buyer.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payment not found.")
+    if _expire_checkout_payment_locked(db, payment):
+        db.flush()
+        return _checkout_payment_to_detail(db, buyer, payment)
+    _cancel_checkout_payment_locked(db, buyer, payment)
+    db.flush()
+    return _checkout_payment_to_detail(db, buyer, payment)
+
+
 def pay_order(db: Any, buyer: Any, order_id: int) -> OrderDetail:
     _ensure_buyer(buyer)
     order = _get_order_for_update(db, order_id)
     if order.buyer_id != buyer.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found.")
+    if order.payment_id is not None and order.status == OrderStatus.WAIT_PAY:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Please pay through the checkout payment.")
     if _expire_wait_pay_order_locked(db, order):
         db.flush()
         return get_order_detail(db, buyer, order.id)
@@ -1546,6 +1896,8 @@ def cancel_order(db: Any, buyer: Any, order_id: int) -> OrderDetail:
     order = _get_order_for_update(db, order_id)
     if order.buyer_id != buyer.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found.")
+    if order.payment_id is not None and order.status == OrderStatus.WAIT_PAY:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Please cancel through the checkout payment.")
     if _expire_wait_pay_order_locked(db, order):
         db.flush()
         return get_order_detail(db, buyer, order.id)

@@ -4,8 +4,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.dependencies import require_roles
 from app.db.session import get_db
-from app.models.enums import OrderStatus, UserRole
-from app.schemas.order import DirectOrderCreate, OrderCreate, OrderCreateResponse, OrderDetail, OrderListResponse
+from app.models.enums import OrderStatus, PaymentStatus, UserRole
+from app.schemas.order import (
+    CheckoutPaymentDetail,
+    CheckoutPaymentListResponse,
+    DirectOrderCreate,
+    OrderCreate,
+    OrderCreateResponse,
+    OrderDetail,
+    OrderListResponse,
+)
 from app.schemas.review import ReviewCreate, ReviewListResponse, ReviewPublic
 from app.schemas.wallet import WalletLedgerListResponse, WalletPublic, WalletRechargeRequest
 
@@ -96,7 +104,7 @@ def create_order(
     from app.services.commerce.service import create_orders_from_cart
 
     try:
-        orders = create_orders_from_cart(
+        orders, payment = create_orders_from_cart(
             db,
             current_buyer,
             receiver_snapshot=payload.receiver_snapshot.model_dump(),
@@ -105,7 +113,7 @@ def create_order(
             auto_pay=payload.auto_pay,
         )
         db.commit()
-        return OrderCreateResponse(orders=orders)
+        return OrderCreateResponse(orders=orders, payment=payment)
     except Exception:
         db.rollback()
         raise
@@ -131,6 +139,82 @@ def create_direct_order(
         )
         db.commit()
         return order
+    except Exception:
+        db.rollback()
+        raise
+
+
+@router.get("/payments", response_model=CheckoutPaymentListResponse)
+def list_checkout_payments(
+    status_filter: PaymentStatus | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    current_buyer: Any = Depends(require_roles(UserRole.BUYER)),
+    db: Any = Depends(get_db),
+) -> CheckoutPaymentListResponse:
+    from app.services.commerce.service import list_checkout_payments as load_payments
+
+    try:
+        response = load_payments(
+            db,
+            current_buyer,
+            status_filter=status_filter,
+            page=page,
+            page_size=page_size,
+        )
+        db.commit()
+        return response
+    except Exception:
+        db.rollback()
+        raise
+
+
+@router.get("/payments/{payment_id}", response_model=CheckoutPaymentDetail)
+def get_checkout_payment(
+    payment_id: int,
+    current_buyer: Any = Depends(require_roles(UserRole.BUYER)),
+    db: Any = Depends(get_db),
+) -> CheckoutPaymentDetail:
+    from app.services.commerce.service import get_checkout_payment_detail
+
+    try:
+        payment = get_checkout_payment_detail(db, current_buyer, payment_id)
+        db.commit()
+        return payment
+    except Exception:
+        db.rollback()
+        raise
+
+
+@router.post("/payments/{payment_id}/pay", response_model=CheckoutPaymentDetail)
+def pay_checkout_payment(
+    payment_id: int,
+    current_buyer: Any = Depends(require_roles(UserRole.BUYER)),
+    db: Any = Depends(get_db),
+) -> CheckoutPaymentDetail:
+    from app.services.commerce.service import pay_checkout_payment as pay_payment
+
+    try:
+        payment = pay_payment(db, current_buyer, payment_id)
+        db.commit()
+        return payment
+    except Exception:
+        db.rollback()
+        raise
+
+
+@router.post("/payments/{payment_id}/cancel", response_model=CheckoutPaymentDetail)
+def cancel_checkout_payment(
+    payment_id: int,
+    current_buyer: Any = Depends(require_roles(UserRole.BUYER)),
+    db: Any = Depends(get_db),
+) -> CheckoutPaymentDetail:
+    from app.services.commerce.service import cancel_checkout_payment as cancel_payment
+
+    try:
+        payment = cancel_payment(db, current_buyer, payment_id)
+        db.commit()
+        return payment
     except Exception:
         db.rollback()
         raise

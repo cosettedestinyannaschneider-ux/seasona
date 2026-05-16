@@ -23,6 +23,7 @@ export function normalizeWallet(wallet = {}) {
 export function normalizeOrder(order = {}) {
   return {
     ...order,
+    payment_id: order.payment_id == null ? null : Number(order.payment_id),
     item_count: Number(order.item_count ?? order.items?.length ?? 0),
     total_amount: normalizeMoney(order.total_amount),
     freight_amount: normalizeMoney(order.freight_amount),
@@ -32,6 +33,20 @@ export function normalizeOrder(order = {}) {
       unit_price: normalizeMoney(item.unit_price),
       total_amount: normalizeMoney(item.total_amount),
     })),
+  }
+}
+
+export function normalizeCheckoutPayment(payment = {}) {
+  return {
+    ...payment,
+    id: Number(payment.id),
+    buyer_id: Number(payment.buyer_id),
+    item_count: Number(payment.item_count ?? 0),
+    order_count: Number(payment.order_count ?? payment.orders?.length ?? 0),
+    total_amount: normalizeMoney(payment.total_amount),
+    freight_amount: normalizeMoney(payment.freight_amount),
+    payable_amount: normalizeMoney(payment.payable_amount),
+    orders: (payment.orders || []).map(normalizeOrder),
   }
 }
 
@@ -87,6 +102,7 @@ export async function createBuyerOrder(payload) {
   const { data } = await http.post('/api/v1/orders', payload)
   return {
     orders: (data.orders || []).map(normalizeOrder),
+    payment: data.payment ? normalizeCheckoutPayment(data.payment) : null,
   }
 }
 
@@ -98,6 +114,33 @@ export async function createDirectBuyerOrder(payload) {
 export async function getBuyerOrder(orderId) {
   const { data } = await http.get(`/api/v1/orders/${orderId}`)
   return normalizeOrder(data)
+}
+
+export async function listCheckoutPayments(statusFilter = '', page = 1, pageSize = 30) {
+  const params = { page, page_size: pageSize }
+  if (statusFilter) params.status_filter = statusFilter
+  const { data } = await http.get('/api/v1/orders/payments', { params })
+  return {
+    items: (data.items || []).map(normalizeCheckoutPayment),
+    total: data.total ?? data.items?.length ?? 0,
+    page: data.page ?? page,
+    page_size: data.page_size ?? pageSize,
+  }
+}
+
+export async function getCheckoutPayment(paymentId) {
+  const { data } = await http.get(`/api/v1/orders/payments/${paymentId}`)
+  return normalizeCheckoutPayment(data)
+}
+
+export async function payCheckoutPayment(paymentId) {
+  const { data } = await http.post(`/api/v1/orders/payments/${paymentId}/pay`)
+  return normalizeCheckoutPayment(data)
+}
+
+export async function cancelCheckoutPayment(paymentId) {
+  const { data } = await http.post(`/api/v1/orders/payments/${paymentId}/cancel`)
+  return normalizeCheckoutPayment(data)
 }
 
 export async function payBuyerOrder(orderId) {

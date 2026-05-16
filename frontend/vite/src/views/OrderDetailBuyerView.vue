@@ -3,9 +3,20 @@
     <button class="detail-back" type="button" @click="goBack">返回</button>
 
     <section class="order-status-panel" :class="orderStatusClass(order)">
-      <span class="section-kicker">Order Status</span>
-      <h1 class="status-heading" :class="orderStatusClass(order)">{{ orderStatusText(order) }}</h1>
-      <p>{{ deliveryText(order) }}</p>
+      <div class="order-status-panel__top">
+        <div class="order-status-panel__main">
+          <span class="section-kicker">Order Status</span>
+          <h1 class="status-heading" :class="orderStatusClass(order)">{{ orderStatusText(order) }}</h1>
+          <p>{{ deliveryText(order) }}</p>
+        </div>
+        <aside v-if="statusNotices.length" class="order-status-panel__aside">
+          <article v-for="notice in statusNotices" :key="notice.title">
+            <span>{{ notice.title }}</span>
+            <strong>{{ notice.value }}</strong>
+            <small>{{ notice.hint }}</small>
+          </article>
+        </aside>
+      </div>
       <div class="order-status-actions">
         <button v-if="order.status === 'WAIT_PAY'" class="primary-button" type="button" @click="pay">立即付款</button>
         <button v-if="canCancel" class="secondary-button" type="button" @click="cancel">取消订单</button>
@@ -14,10 +25,6 @@
         </button>
         <button v-if="canRefund" class="secondary-button" type="button" @click="refundOpen = !refundOpen">退款申请</button>
         <button v-if="canDispute" class="secondary-button" type="button" @click="disputeOpen = !disputeOpen">争议申请</button>
-      </div>
-      <div v-if="afterSaleSummary" class="order-after-sale-summary">
-        <strong>售后信息</strong>
-        <span>{{ afterSaleSummary }}</span>
       </div>
       <p v-if="message" class="form-message" :class="{ 'form-message--error': messageType === 'error' }">
         {{ message }}
@@ -113,6 +120,8 @@ import {
   createRefundApplication,
   createRefundDispute,
   getBuyerOrder,
+  payCheckoutPayment,
+  cancelCheckoutPayment,
   payBuyerOrder,
 } from '../api/buyer'
 import { apiErrorMessage } from '../api/http'
@@ -159,6 +168,25 @@ const afterSaleSummary = computed(() => {
   if (order.value.active_refund_status === 'disputed') return `${status}，管理员正在处理。`
   return `${status}。`
 })
+const statusNotices = computed(() => {
+  if (!order.value) return []
+  const notices = []
+  if (order.value.status === 'WAIT_PAY' && order.value.payment_expires_at) {
+    notices.push({
+      title: '付款截止',
+      value: dateText(order.value.payment_expires_at),
+      hint: '请在截止前完成付款',
+    })
+  }
+  if (afterSaleSummary.value) {
+    notices.push({
+      title: '售后状态',
+      value: refundStatusText(order.value.active_refund_status),
+      hint: afterSaleSummary.value,
+    })
+  }
+  return notices
+})
 
 function money(value) {
   return Number(value || 0).toFixed(2)
@@ -203,7 +231,12 @@ async function refreshOrder() {
 
 async function pay() {
   try {
-    order.value = await payBuyerOrder(order.value.id)
+    if (order.value.payment_id) {
+      await payCheckoutPayment(order.value.payment_id)
+      await refreshOrder()
+    } else {
+      order.value = await payBuyerOrder(order.value.id)
+    }
     setMessage('付款成功')
   } catch (error) {
     setMessage(apiErrorMessage(error, '付款失败'), 'error')
@@ -212,7 +245,12 @@ async function pay() {
 
 async function cancel() {
   try {
-    order.value = await cancelBuyerOrder(order.value.id)
+    if (order.value.payment_id && order.value.status === 'WAIT_PAY') {
+      await cancelCheckoutPayment(order.value.payment_id)
+      await refreshOrder()
+    } else {
+      order.value = await cancelBuyerOrder(order.value.id)
+    }
     setMessage('订单已取消')
   } catch (error) {
     setMessage(apiErrorMessage(error, '取消订单失败'), 'error')

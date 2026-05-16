@@ -94,7 +94,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Edit3, LogOut, UserRound } from 'lucide-vue-next'
 import { apiErrorMessage, mediaUrl } from '../api/http'
-import { getBuyerWallet, listBuyerOrders, listBuyerReviews } from '../api/buyer'
+import { getBuyerWallet, listBuyerOrders, listBuyerReviews, listCheckoutPayments } from '../api/buyer'
 import { useAuthStore } from '../stores/auth'
 import { useCartStore } from '../stores/cart'
 import { useDelayedBusy } from '../composables/useDelayedBusy'
@@ -105,15 +105,16 @@ const auth = useAuthStore()
 const cart = useCartStore()
 const wallet = ref({ available_balance: 0, frozen_balance: 0 })
 const orders = ref([])
+const waitPayTotal = ref(0)
 const reviewTotal = ref(0)
 const message = ref('')
 const loading = ref(false)
 const showLoading = useDelayedBusy(loading)
 
 const user = computed(() => auth.user || {})
-const recentOrders = computed(() => orders.value.slice(0, 3))
+const recentOrders = computed(() => orders.value.filter((item) => item.status !== 'WAIT_PAY').slice(0, 3))
 const counts = computed(() => ({
-  waitPay: orders.value.filter((item) => orderMatchesDisplayFilter(item, 'WAIT_PAY')).length,
+  waitPay: waitPayTotal.value,
   confirming: orders.value.filter((item) => ['PAID', 'SHIPPED'].includes(orderDisplayState(item).key)).length,
 }))
 const displayNickname = computed(() => truncateText(user.value.nickname || '点击设置昵称', 18))
@@ -152,15 +153,17 @@ onMounted(async () => {
   if (!auth.isAuthenticated) return
   loading.value = true
   try {
-    const [walletResult, orderResult, reviewResult] = await Promise.all([
+    const [walletResult, orderResult, reviewResult, paymentResult] = await Promise.all([
       getBuyerWallet(),
       listBuyerOrders(),
       listBuyerReviews(),
+      listCheckoutPayments('WAIT_PAY'),
       auth.loadMe().catch(() => null),
     ])
     wallet.value = walletResult
     orders.value = orderResult.items
     reviewTotal.value = reviewResult.total
+    waitPayTotal.value = paymentResult.total
   } catch (error) {
     message.value = apiErrorMessage(error, '个人主页读取失败，请确认当前账号是买家')
   } finally {

@@ -173,8 +173,8 @@
             </label>
             <label>
               城市
-              <select v-model="addressForm.city" :disabled="!addressForm.province">
-                <option value="" disabled>请选择城市</option>
+              <select v-model="addressForm.city" :disabled="!addressForm.province || isAddressProvinceLevel">
+                <option value="" disabled>{{ isAddressProvinceLevel ? '无需选择城市' : '请选择城市' }}</option>
                 <option v-for="city in addressCityList" :key="city" :value="city">
                   {{ city }}
                 </option>
@@ -236,7 +236,13 @@ import { uploadAvatar } from '../api/uploads'
 import { useAuthStore } from '../stores/auth'
 import { useCartStore } from '../stores/cart'
 import { useDelayedBusy } from '../composables/useDelayedBusy'
-import { cityOptionsForProvince, formatAddressLine, normalizeAddressRegion, provinceOptions } from '../utils/address'
+import {
+  cityOptionsForProvince,
+  formatAddressLine,
+  isProvinceLevelRegion,
+  normalizeAddressRegion,
+  provinceOptions,
+} from '../utils/address'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -290,6 +296,7 @@ const confirmDialog = reactive({
 const user = computed(() => auth.user || {})
 const provinceList = provinceOptions()
 const addressCityList = computed(() => cityOptionsForProvince(addressForm.province))
+const isAddressProvinceLevel = computed(() => isProvinceLevelRegion(addressForm.province))
 const dirty = computed(() => {
   return (
     form.nickname !== (user.value.nickname || '') ||
@@ -546,8 +553,9 @@ async function loadAddressBook(force = false) {
 }
 
 function addressFormWarning() {
-  const fields = ['receiver_name', 'receiver_phone', 'province', 'city', 'district', 'detail']
+  const fields = ['receiver_name', 'receiver_phone', 'province', 'district', 'detail']
   if (fields.some((field) => !addressForm[field])) return '请填写完整地址信息'
+  if (!isAddressProvinceLevel.value && !addressForm.city) return '请选择城市'
   if (!/^\d+$/.test(addressForm.receiver_phone)) return '手机号只能包含数字'
   return ''
 }

@@ -127,6 +127,11 @@ function translateApiMessage(text) {
   if (text.includes('Cart contains unavailable products')) return '购物车中包含不可购买商品，请先调整'
   if (text.includes('No cart items selected')) return '请先选择要下单的商品'
   if (text.includes('Some cart items are invalid')) return '部分购物车商品已失效，请刷新后重试'
+  if (text.includes('Payment window has expired')) return '支付单已超时，请重新下单'
+  if (text.includes('Only wait-pay payments can be paid')) return '只有待付款支付单可以支付'
+  if (text.includes('Only wait-pay payments can be cancelled')) return '只有待付款支付单可以取消'
+  if (text.includes('Please pay through the checkout payment')) return '请在待付款支付单中完成付款'
+  if (text.includes('Please cancel through the checkout payment')) return '请在待付款支付单中取消支付'
   if (text.includes('Only wait-pay orders can be paid')) return '只有待付款订单可以支付'
   if (text.includes('Only unshipped wait-pay or paid orders can be cancelled')) {
     return '订单已发货或状态已变化，无法取消'

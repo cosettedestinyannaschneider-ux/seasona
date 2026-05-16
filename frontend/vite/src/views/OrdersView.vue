@@ -33,7 +33,30 @@
 
       <div v-if="loading && showLoading" class="loading-hint loading-hint--block">正在加载订单</div>
       <div v-else-if="loading" class="loading-placeholder"></div>
-      <div v-else-if="filteredOrders.length" class="order-list">
+      <div v-else-if="activeTab === 'WAIT_PAY' && payments.length" class="order-list">
+        <RouterLink
+          v-for="payment in payments"
+          :key="payment.id"
+          class="order-card"
+          :to="{ name: 'buyer-payment-detail', params: { id: payment.id } }"
+        >
+          <div class="order-card__top">
+            <strong>{{ paymentTitle(payment) }}</strong>
+            <span class="status-pill status-tone-red">待付款</span>
+          </div>
+          <div class="order-card__content">
+            <div>
+              <p>聚合支付单 {{ payment.payment_no }}</p>
+              <small>{{ paymentDeadlineText(payment) }}</small>
+            </div>
+          </div>
+          <div class="order-card__bottom">
+            <span>{{ payment.order_count }} 笔订单，{{ payment.item_count }} 件商品</span>
+            <strong>￥{{ money(payment.payable_amount) }}</strong>
+          </div>
+        </RouterLink>
+      </div>
+      <div v-else-if="activeTab !== 'WAIT_PAY' && filteredOrders.length" class="order-list">
         <RouterLink v-for="order in filteredOrders" :key="order.id" class="order-card" :to="orderDetailLink(order)">
           <div class="order-card__top">
             <strong>{{ orderTitle(order) }}</strong>
@@ -62,7 +85,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { apiErrorMessage } from '../api/http'
-import { listBuyerOrders } from '../api/buyer'
+import { listBuyerOrders, listCheckoutPayments } from '../api/buyer'
 import { useAuthStore } from '../stores/auth'
 import { useDelayedBusy } from '../composables/useDelayedBusy'
 import { orderMatchesDisplayFilter, orderStatusClass, orderStatusText, orderTitle } from '../utils/orderDisplay'
@@ -71,6 +94,7 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const orders = ref([])
+const payments = ref([])
 const activeTab = ref(String(route.query.tab || 'all'))
 const message = ref('')
 const loading = ref(false)
@@ -89,8 +113,10 @@ const tabs = [
 ]
 
 const filteredOrders = computed(() => {
-  if (activeTab.value === 'all') return orders.value
-  return orders.value.filter((item) => orderMatchesDisplayFilter(item, activeTab.value))
+  const normalOrders = orders.value.filter((item) => item.status !== 'WAIT_PAY')
+  if (activeTab.value === 'all') return normalOrders
+  if (activeTab.value === 'WAIT_PAY') return []
+  return normalOrders.filter((item) => orderMatchesDisplayFilter(item, activeTab.value))
 })
 const emptyText = computed(() => {
   const label = tabs.find((item) => item.value === activeTab.value)?.label || '当前分类'
@@ -102,13 +128,24 @@ function money(value) {
 }
 
 function deliveryText(order) {
-  if (order.status === 'WAIT_PAY') return '等待付款，卖家暂不可见'
   if (['pending', 'approved'].includes(order.active_refund_status)) return '退款申请正在处理中'
   if (order.active_refund_status === 'disputed') return '争议正在处理中'
   if (!order.is_shipped && ['PAID', 'REFUND_PENDING'].includes(order.status)) return '等待商家发货'
   if (order.expected_delivery_at) return `预计到货 ${new Date(order.expected_delivery_at).toLocaleString()}`
   if (order.is_shipped) return '商家已发货'
   return '订单已结束'
+}
+
+function paymentTitle(payment) {
+  const title = payment.primary_product_name || payment.orders?.[0]?.primary_product_name || payment.payment_no
+  const count = Number(payment.item_count || 0)
+  return count > 1 ? `${title} 等 ${count} 件` : title
+}
+
+function paymentDeadlineText(payment) {
+  return payment.payment_expires_at
+    ? `请在 ${new Date(payment.payment_expires_at).toLocaleString()} 前完成付款`
+    : '等待付款'
 }
 
 function setTab(value) {
@@ -127,8 +164,12 @@ function orderDetailLink(order, extraQuery = {}) {
 async function loadOrders() {
   loading.value = true
   try {
-    const result = await listBuyerOrders()
+    const [result, paymentResult] = await Promise.all([
+      listBuyerOrders(),
+      listCheckoutPayments('WAIT_PAY'),
+    ])
     orders.value = result.items
+    payments.value = paymentResult.items
   } catch (error) {
     message.value = apiErrorMessage(error, '订单读取失败，请确认当前账号是买家')
   } finally {

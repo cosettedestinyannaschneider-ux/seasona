@@ -77,8 +77,8 @@
             </label>
             <label>
               城市
-              <select v-model="receiver.city" :disabled="!receiver.province">
-                <option value="" disabled>请选择城市</option>
+              <select v-model="receiver.city" :disabled="!receiver.province || isReceiverProvinceLevel">
+                <option value="" disabled>{{ isReceiverProvinceLevel ? '无需选择城市' : '请选择城市' }}</option>
                 <option v-for="city in receiverCityList" :key="city" :value="city">
                   {{ city }}
                 </option>
@@ -123,7 +123,13 @@ import { apiErrorMessage } from '../api/http'
 import { useAuthStore } from '../stores/auth'
 import { useCartStore } from '../stores/cart'
 import { useDelayedBusy } from '../composables/useDelayedBusy'
-import { cityOptionsForProvince, formatAddressLine, normalizeAddressRegion, provinceOptions } from '../utils/address'
+import {
+  cityOptionsForProvince,
+  formatAddressLine,
+  isProvinceLevelRegion,
+  normalizeAddressRegion,
+  provinceOptions,
+} from '../utils/address'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -152,6 +158,7 @@ const visibleItems = computed(() => (draft.value?.items || []).slice(0, 5))
 const extraCount = computed(() => Math.max(0, (draft.value?.items?.length || 0) - visibleItems.value.length))
 const totalAmount = computed(() => Number(draft.value?.total_amount || 0))
 const receiverCityList = computed(() => cityOptionsForProvince(receiver.province))
+const isReceiverProvinceLevel = computed(() => isProvinceLevelRegion(receiver.province))
 
 function money(value) {
   return Number(value || 0).toFixed(2)
@@ -203,7 +210,9 @@ function selectedAddress() {
 }
 
 function receiverComplete(value) {
-  return value && ['receiver_name', 'receiver_phone', 'province', 'city', 'district', 'detail'].every((key) => value[key])
+  if (!value) return false
+  const fields = ['receiver_name', 'receiver_phone', 'province', 'district', 'detail']
+  return fields.every((key) => value[key]) && (isProvinceLevelRegion(value.province) || Boolean(value.city))
 }
 
 function addressLine(address) {
@@ -251,11 +260,11 @@ async function createOrder() {
         cart_item_ids: draft.value.cart_item_ids,
         auto_pay: false,
       })
-      if (result.orders.length > 1) {
+      if (result.payment?.id) {
         await saveAddressIfNeeded(receiverSnapshot)
         window.sessionStorage.removeItem('seasona_checkout_draft')
         await cart.load().catch(() => {})
-        router.push('/orders?tab=WAIT_PAY')
+        router.push(`/payments/${result.payment.id}`)
         return
       }
       order = result.orders[0]
@@ -263,6 +272,10 @@ async function createOrder() {
     }
     await saveAddressIfNeeded(receiverSnapshot)
     window.sessionStorage.removeItem('seasona_checkout_draft')
+    if (order?.payment_id) {
+      router.push(`/payments/${order.payment_id}`)
+      return
+    }
     if (order?.id) {
       router.push(`/orders/${order.id}`)
     } else {

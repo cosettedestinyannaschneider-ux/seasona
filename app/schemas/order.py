@@ -3,9 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
-from app.models.enums import OrderStatus, RefundStatus
+from app.models.enums import OrderStatus, PaymentStatus, RefundStatus
 from app.schemas.review import ReviewPublic
 
 
@@ -13,9 +13,16 @@ class ReceiverSnapshot(BaseModel):
     receiver_name: str = Field(min_length=1, max_length=64)
     receiver_phone: str = Field(min_length=1, max_length=32)
     province: str = Field(min_length=1, max_length=64)
-    city: str = Field(min_length=1, max_length=64)
+    city: str = Field(default="", max_length=64)
     district: str = Field(min_length=1, max_length=64)
     detail: str = Field(min_length=1, max_length=255)
+
+    @model_validator(mode="after")
+    def validate_city_for_regular_province(self) -> "ReceiverSnapshot":
+        province_level_regions = {"北京市", "天津市", "上海市", "重庆市", "香港特别行政区", "澳门特别行政区"}
+        if self.province not in province_level_regions and not self.city:
+            raise ValueError("city is required.")
+        return self
 
 
 class OrderCreate(BaseModel):
@@ -59,6 +66,7 @@ class OrderItemPublic(BaseModel):
 class OrderPublic(BaseModel):
     id: int
     order_no: str
+    payment_id: int | None = None
     primary_product_name: str | None = None
     item_count: int = 0
     buyer_id: int
@@ -92,5 +100,37 @@ class OrderListResponse(BaseModel):
     page_size: int
 
 
+class CheckoutPaymentPublic(BaseModel):
+    id: int
+    payment_no: str
+    buyer_id: int
+    status: PaymentStatus
+    total_amount: Decimal
+    freight_amount: Decimal
+    payable_amount: Decimal
+    receiver_snapshot_json: dict
+    payment_expires_at: datetime
+    paid_at: datetime | None = None
+    cancelled_at: datetime | None = None
+    expired_at: datetime | None = None
+    primary_product_name: str | None = None
+    item_count: int = 0
+    order_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+
+class CheckoutPaymentDetail(CheckoutPaymentPublic):
+    orders: list[OrderDetail]
+
+
+class CheckoutPaymentListResponse(BaseModel):
+    items: list[CheckoutPaymentDetail]
+    total: int
+    page: int
+    page_size: int
+
+
 class OrderCreateResponse(BaseModel):
     orders: list[OrderDetail]
+    payment: CheckoutPaymentDetail | None = None

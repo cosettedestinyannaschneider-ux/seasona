@@ -91,7 +91,7 @@ class AddressBase(BaseModel):
     receiver_name: str = Field(min_length=1, max_length=64)
     receiver_phone: str = Field(min_length=1, max_length=32)
     province: str = Field(min_length=1, max_length=64)
-    city: str = Field(min_length=1, max_length=64)
+    city: str = Field(default="", max_length=64)
     district: str = Field(min_length=1, max_length=64)
     detail: str = Field(min_length=1, max_length=255)
 
@@ -99,7 +99,6 @@ class AddressBase(BaseModel):
         "receiver_name",
         "receiver_phone",
         "province",
-        "city",
         "district",
         "detail",
         mode="before",
@@ -117,6 +116,19 @@ class AddressBase(BaseModel):
         if not value.isdigit():
             raise ValueError("phone must contain only digits.")
         return value
+
+    @field_validator("city", mode="before")
+    @classmethod
+    def normalize_city(cls, value: Any) -> str:
+        return str(value or "").strip()
+
+    @model_validator(mode="after")
+    def validate_city_for_regular_province(self) -> "AddressBase":
+        province = self.province
+        province_level_regions = {"北京市", "天津市", "上海市", "重庆市", "香港特别行政区", "澳门特别行政区"}
+        if province not in province_level_regions and not self.city:
+            raise ValueError("city is required.")
+        return self
 
 
 class AddressCreate(AddressBase):
