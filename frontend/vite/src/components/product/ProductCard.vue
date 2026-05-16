@@ -1,12 +1,15 @@
 <template>
-  <article class="product-card">
+  <article class="product-card" :class="{ 'product-card--sold-out': isOutOfStock }">
     <RouterLink class="product-card__media" :to="productDetailLink">
       <img :src="product.cover_image_url" :alt="product.name" loading="lazy" />
+      <span v-if="isOutOfStock" class="product-card__sold-out-ribbon">缺货</span>
     </RouterLink>
     <div class="product-card__body">
       <div class="product-card__topline">
         <span>{{ product.category_name || '农产品' }}</span>
-        <span>{{ product.stock_total > 0 ? `库存 ${product.stock_total}` : '暂缺' }}</span>
+        <span :class="{ 'product-card__stock--empty': isOutOfStock }">
+          {{ isOutOfStock ? '暂缺' : `库存 ${product.stock_total}` }}
+        </span>
       </div>
       <RouterLink class="product-card__title" :to="productDetailLink">
         {{ product.name }}
@@ -19,7 +22,7 @@
       <p v-if="notice" class="soft-toast">{{ notice }}</p>
       <div class="product-card__actions">
         <strong>￥{{ Number(product.min_price || 0).toFixed(2) }}</strong>
-        <button type="button" :disabled="busy" @click="addToCart">
+        <button type="button" :disabled="busy || isOutOfStock" @click="addToCart">
           <Plus :size="17" />
           <span>{{ skuId ? '加购' : '看详情' }}</span>
         </button>
@@ -52,6 +55,7 @@ let noticeTimer = 0
 const skuId = computed(() => {
   return props.product.default_sku_id || props.product.skus?.[0]?.sku_id || props.product.skus?.[0]?.id || null
 })
+const isOutOfStock = computed(() => Number(props.product.stock_total || 0) <= 0)
 const productDetailLink = computed(() => ({
   name: 'product-detail',
   params: { id: props.product.spu_id },
@@ -67,7 +71,7 @@ function showNotice(text) {
 }
 
 async function addToCart() {
-  if (Number(props.product.stock_total || 0) <= 0) {
+  if (isOutOfStock.value) {
     showNotice('当前商品无货')
     return
   }

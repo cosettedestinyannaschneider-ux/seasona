@@ -67,7 +67,7 @@
         <div v-if="recentOrders.length" class="order-list order-list--compact">
           <RouterLink v-for="order in recentOrders" :key="order.id" class="order-card" :to="orderDetailLink(order)">
             <div class="order-card__top">
-              <strong>{{ order.order_no }}</strong>
+              <strong>{{ orderTitle(order) }}</strong>
               <span class="status-pill" :class="orderStatusClass(order)">{{ orderStatusText(order) }}</span>
             </div>
             <div class="order-card__bottom">
@@ -135,6 +135,15 @@ function orderDetailLink(order) {
     params: { id: order.id },
     query: { from: '/profile' },
   }
+}
+
+function orderTitle(order) {
+  const firstItem = order.items?.[0]
+  const title = firstItem?.product_name_snapshot || order.product_name_snapshot || order.order_no
+  if ((order.items?.length || 0) > 1 && title !== order.order_no) {
+    return `${title} 等 ${order.items.length} 件`
+  }
+  return title
 }
 
 async function logout() {

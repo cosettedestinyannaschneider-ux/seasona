@@ -49,7 +49,7 @@
 
         <section class="filter-section">
           <div class="filter-heading">
-            <span>鎺掑簭</span>
+            <span>排序</span>
             <small>{{ currentSortLabel }}</small>
           </div>
           <div class="filter-options">

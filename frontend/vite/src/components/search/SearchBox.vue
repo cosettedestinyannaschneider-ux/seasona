@@ -14,17 +14,6 @@
       <Search v-else :size="18" />
       <span>{{ buttonLabel }}</span>
     </button>
-
-    <div class="search-box__suggestions" v-if="focused">
-      <button
-        v-for="item in suggestions"
-        :key="item"
-        type="button"
-        @mousedown.prevent="choose(item)"
-      >
-        {{ item }}
-      </button>
-    </div>
   </form>
 </template>
 
@@ -64,7 +53,6 @@ const emit = defineEmits(['update:modelValue', 'submit'])
 const router = useRouter()
 const innerValue = ref(props.modelValue)
 const focused = ref(false)
-const suggestions = ['番茄炒蛋', '土豆炖牛腩', '早餐鸡蛋', '阳光玫瑰', '五常大米']
 
 watch(
   () => props.modelValue,
@@ -84,8 +72,4 @@ function submit() {
   })
 }
 
-function choose(value) {
-  innerValue.value = value
-  submit()
-}
 </script>

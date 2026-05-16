@@ -43,7 +43,25 @@ export function apiErrorMessage(error, fallback = '请求失败，请稍后再�
     if (details) return details
   }
   if (typeof data?.message === 'string') return translateApiMessage(data.message)
+  const clientMessage = translateClientError(error)
+  if (clientMessage) return clientMessage
   return error?.message || fallback
+}
+
+function translateClientError(error) {
+  const status = error?.response?.status
+  const code = error?.code || ''
+  const message = String(error?.message || '')
+  const lowerMessage = message.toLowerCase()
+  if (code === 'ECONNABORTED' || lowerMessage.includes('timeout')) {
+    return '请求超时，请检查网络后重试'
+  }
+  if (message.includes('Network Error')) {
+    return '网络连接失败，请检查服务器或网络'
+  }
+  if (status === 504) return '服务响应超时，请稍后再试'
+  if (status === 502 || status === 503) return '服务暂时不可用，请稍后再试'
+  return ''
 }
 
 function translateApiMessage(text) {
@@ -65,6 +83,12 @@ function translateApiMessage(text) {
   if (text.includes('Insufficient frozen wallet balance')) return '冻结余额不足，订单状态可能已变化'
   if (text.includes('Seller wallet balance is insufficient')) return '卖家钱包余额不足，暂时无法退款'
   if (text.includes('Database service is unavailable')) return '数据库服务暂时不可用，请稍后再试'
+  if (text.includes('LLM provider request failed')) return 'AI 服务响应失败，请稍后再试'
+  if (text.includes('LLM returned invalid JSON')) return 'AI 返回格式异常，请稍后重试'
+  if (text.includes('LLM returned unsupported status')) return 'AI 返回状态异常，请稍后重试'
+  if (text.includes('Meilisearch request failed')) return '搜索服务暂时不可用，请稍后再试'
+  if (text.includes('Meilisearch is unavailable')) return '搜索服务暂时不可用，请稍后再试'
+  if (text.includes('Meilisearch is not configured')) return '搜索服务尚未配置'
   if (text.includes('Seller profile is missing')) return '商家资料不存在，请重新登录后再试'
   if (text.includes('Merchant account is not approved yet')) return '商家资质尚未通过审核，暂不能执行该操作'
   if (text.includes('Suspended merchant profile cannot be updated')) return '商家账号已被暂停，暂不能修改店铺资料'
