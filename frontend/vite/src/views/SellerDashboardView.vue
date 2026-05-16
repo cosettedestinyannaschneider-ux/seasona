@@ -654,7 +654,7 @@
                   >
                     <div>
                       <strong>{{ displayBuyerName(review.buyer_username) }}</strong>
-                      <small>{{ reviewSku(review) }} · {{ formatDate(review.created_at) }}</small>
+                      <small>{{ formatDate(review.created_at) }}</small>
                       <span>{{ '★'.repeat(review.rating) }}{{ '☆'.repeat(5 - review.rating) }}</span>
                       <p>{{ review.content || '买家没有填写文字评价' }}</p>
                     </div>
@@ -818,7 +818,6 @@ import FloatingFeedback from '../components/layout/FloatingFeedback.vue'
 import { useDelayedBusy } from '../composables/useDelayedBusy'
 import { useAuthStore } from '../stores/auth'
 import { orderMatchesDisplayFilter, orderStatusClass, orderStatusText } from '../utils/orderDisplay'
-import { formatSkuDisplay } from '../utils/sku'
 
 let localSkuId = 0
 
@@ -1921,11 +1920,6 @@ function formatDate(value) {
 function displayBuyerName(value) {
   const text = value || '买家'
   return text.length > 8 ? `${text.slice(0, 8)}...` : text
-}
-
-function reviewSku(review) {
-  if (!review?.sku_id) return '商品评论'
-  return formatSkuDisplay(review, `SKU ${review?.sku_id || ''}`)
 }
 
 </script>

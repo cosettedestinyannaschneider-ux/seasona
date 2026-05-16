@@ -1,5 +1,7 @@
 <template>
   <section v-if="product" class="detail-page">
+    <FloatingFeedback :message="reviewMessage" type="error" @clear="reviewMessage = ''" />
+
     <button class="detail-back" type="button" @click="goBack">
       <ArrowLeft :size="18" />
       <span>返回</span>
@@ -207,7 +209,6 @@
         </article>
       </div>
       <div v-else class="empty-state">还没有买家评价，完成订单后的真实评价会展示在这里。</div>
-      <div v-if="reviewMessage" class="soft-toast">{{ reviewMessage }}</div>
     </section>
 
     <div v-if="skuPickerVisible" class="sku-picker-wrap" aria-live="polite">
@@ -272,6 +273,7 @@ import { useDelayedBusy } from '../composables/useDelayedBusy'
 import { formatSkuDisplay, formatSpecAttrs } from '../utils/sku'
 import { formatRating, hasRating, ratingToneClass } from '../utils/rating'
 import { formatReviewTime } from '../utils/date'
+import FloatingFeedback from '../components/layout/FloatingFeedback.vue'
 
 const INLINE_SKU_LIMIT = 4
 
@@ -329,9 +331,7 @@ const writeReviewLink = computed(() => ({
 const hasReviewableOrderItem = computed(() =>
   Boolean(reviewEligibility.value?.reviewable_items?.some((item) => !item.already_reviewed)),
 )
-const canWriteReview = computed(() =>
-  Boolean(reviewEligibility.value?.can_write_free_review || hasReviewableOrderItem.value),
-)
+const canWriteReview = computed(() => hasReviewableOrderItem.value)
 const reviewTotalLabel = computed(() => (reviewTotal.value > 9999 ? '9999+' : String(reviewTotal.value).padStart(1, '0')))
 const productImages = computed(() => {
   const item = product.value
@@ -389,13 +389,8 @@ function formatTraceDate(value) {
   return date.toLocaleDateString('zh-CN')
 }
 
-function reviewSku(review) {
-  if (!review?.sku_id) return ''
-  return formatSkuDisplay(review)
-}
-
 function reviewMeta(review) {
-  return [reviewSku(review), formatReviewTime(review?.created_at)].filter(Boolean).join(' · ')
+  return formatReviewTime(review?.created_at)
 }
 
 function stars(rating) {

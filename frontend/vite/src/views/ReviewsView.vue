@@ -6,10 +6,10 @@
         <h1>我的评价</h1>
       </div>
       <div class="buyer-heading__actions">
-        <button v-if="activeGroup" class="secondary-button" type="button" @click="closeGroup">
+        <button v-if="activeGroup && viewMode === 'published'" class="secondary-button" type="button" @click="closeGroup">
           返回评价列表
         </button>
-        <RouterLink class="primary-button" to="/orders?tab=COMPLETED">去已完成订单评价</RouterLink>
+        <RouterLink v-else class="primary-button" to="/orders?tab=COMPLETED">去已完成订单评价</RouterLink>
       </div>
     </div>
 
@@ -23,8 +23,48 @@
       <div v-if="loading && showLoading" class="loading-hint loading-hint--block">正在加载评价</div>
       <div v-else-if="loading" class="loading-placeholder"></div>
 
-      <template v-else-if="activeGroup">
-        <section class="buyer-review-detail">
+      <div class="review-view-switch">
+        <button type="button" :class="{ active: viewMode === 'published' }" @click="viewMode = 'published'">
+          已评论
+        </button>
+        <button type="button" :class="{ active: viewMode === 'drafts' }" @click="viewMode = 'drafts'">
+          草稿箱
+        </button>
+      </div>
+
+      <template v-if="viewMode === 'drafts'">
+        <div v-if="reviewDrafts.length" class="buyer-review-products">
+          <article
+            v-for="draft in reviewDrafts"
+            :key="`draft-${draft.id}`"
+            class="buyer-review-product-row buyer-review-product-row--draft"
+          >
+            <img
+              v-if="draft.product_cover_image_url"
+              :src="mediaUrl(draft.product_cover_image_url)"
+              :alt="draft.product_name"
+            />
+            <div v-else class="seller-product-row__blank">草</div>
+            <div>
+              <strong>{{ draft.product_name || '评价草稿' }}</strong>
+              <span>{{ draft.content || '草稿暂未填写正文' }}</span>
+              <small>草稿 · {{ formatReviewTime(draft.updated_at) }}</small>
+            </div>
+            <RouterLink
+              class="seller-ghost-button"
+              :to="draft.order_id
+                ? { name: 'review-write', params: { id: draft.spu_id }, query: { order_id: draft.order_id, from: '/reviews' } }
+                : { name: 'review-write', params: { id: draft.spu_id }, query: { from: '/reviews' } }"
+            >
+              继续编辑
+            </RouterLink>
+          </article>
+        </div>
+        <div v-else class="empty-state">你还没有保存过评价草稿。</div>
+      </template>
+
+      <template v-else>
+        <section v-if="activeGroup" class="buyer-review-detail">
           <div class="buyer-review-detail__head">
             <img
               v-if="activeGroup.product_cover_image_url"
@@ -34,7 +74,7 @@
             <div v-else class="seller-product-row__blank">评</div>
             <div>
               <h2>{{ activeGroup.product_name }}</h2>
-              <p>{{ activeGroup.reviews.length }} 条评价，{{ activeGroup.skuSummary }}</p>
+              <p>{{ activeGroup.reviews.length }} 条评价</p>
             </div>
             <span v-if="activeGroup.unreadReplyCount" class="review-unread-badge">
               {{ activeGroup.unreadReplyCount }} 条新回复
@@ -68,46 +108,27 @@
             </article>
           </div>
         </section>
+
+        <div v-else-if="reviewGroups.length" class="buyer-review-products">
+          <article v-for="group in reviewGroups" :key="group.spu_id" class="buyer-review-product-row">
+            <img
+              v-if="group.product_cover_image_url"
+              :src="mediaUrl(group.product_cover_image_url)"
+              :alt="group.product_name"
+            />
+            <div v-else class="seller-product-row__blank">评</div>
+            <div>
+              <strong>{{ group.product_name }}</strong>
+              <span>{{ group.reviews.length }} 条评价</span>
+              <small>{{ groupSummary(group) }}</small>
+            </div>
+            <i v-if="group.unreadReplyCount" aria-hidden="true"></i>
+            <button class="seller-ghost-button" type="button" @click="openGroup(group)">查看详情</button>
+          </article>
+        </div>
+        <div v-else class="empty-state">你还没有发表过评价，完成订单后可以在订单详情中评价商品。</div>
       </template>
 
-      <div v-else-if="reviewDrafts.length || reviewGroups.length" class="buyer-review-products">
-        <article v-for="draft in reviewDrafts" :key="`draft-${draft.id}`" class="buyer-review-product-row buyer-review-product-row--draft">
-          <img
-            v-if="draft.product_cover_image_url"
-            :src="mediaUrl(draft.product_cover_image_url)"
-            :alt="draft.product_name"
-          />
-          <div v-else class="seller-product-row__blank">草</div>
-          <div>
-            <strong>{{ draft.product_name || '评价草稿' }}</strong>
-            <span>{{ draft.content || '草稿暂未填写正文' }}</span>
-            <small>草稿 · {{ formatReviewTime(draft.updated_at) }}</small>
-          </div>
-          <RouterLink
-            class="seller-ghost-button"
-            :to="{ name: 'review-write', params: { id: draft.spu_id }, query: draft.order_item_id ? { order_item_id: draft.order_item_id, from: '/reviews' } : { from: '/reviews' } }"
-          >
-            继续编辑
-          </RouterLink>
-        </article>
-        <article v-for="group in reviewGroups" :key="group.spu_id" class="buyer-review-product-row">
-          <img
-            v-if="group.product_cover_image_url"
-            :src="mediaUrl(group.product_cover_image_url)"
-            :alt="group.product_name"
-          />
-          <div v-else class="seller-product-row__blank">评</div>
-          <div>
-            <strong>{{ group.product_name }}</strong>
-            <span>{{ group.skuSummary }}</span>
-            <small>{{ groupSummary(group) }}</small>
-          </div>
-          <i v-if="group.unreadReplyCount" aria-hidden="true"></i>
-          <button class="seller-ghost-button" type="button" @click="openGroup(group)">查看详情</button>
-        </article>
-      </div>
-
-      <div v-else class="empty-state">你还没有发表过评价，完成订单后可以在订单详情中评价商品。</div>
     </template>
 
   </section>
@@ -122,7 +143,6 @@ import { listBuyerReviewDrafts, listBuyerReviews } from '../api/buyer'
 import { useAuthStore } from '../stores/auth'
 import { useDelayedBusy } from '../composables/useDelayedBusy'
 import { formatReviewTime } from '../utils/date'
-import { formatSkuDisplay } from '../utils/sku'
 
 const SEEN_REPLY_KEY = 'seasona_seen_review_replies'
 
@@ -132,6 +152,7 @@ const reviews = ref([])
 const reviewDrafts = ref([])
 const activeSpuId = ref(null)
 const seenReplyKeys = ref(new Set())
+const viewMode = ref('published')
 const message = ref('')
 const loading = ref(false)
 const showLoading = useDelayedBusy(loading)
@@ -151,10 +172,8 @@ const reviewGroups = computed(() => {
     map.get(key).reviews.push(review)
   }
   return [...map.values()].map((group) => {
-    const skuNames = [...new Set(group.reviews.map(reviewSku))]
     return {
       ...group,
-      skuSummary: skuNames.slice(0, 3).join(' / ') + (skuNames.length > 3 ? ` 等 ${skuNames.length} 种规格` : ''),
       unreadReplyCount: group.reviews.filter(hasUnreadReply).length,
       latestReviewTime: latestReviewTime(group.reviews),
     }
@@ -188,13 +207,8 @@ function stars(rating) {
   return `${'★'.repeat(score)}${'☆'.repeat(5 - score)}`
 }
 
-function reviewSku(review) {
-  if (!review?.sku_id) return '商品评论'
-  return formatSkuDisplay(review)
-}
-
 function reviewMeta(review) {
-  return [reviewSku(review), formatReviewTime(review?.created_at)].filter(Boolean).join(' · ')
+  return formatReviewTime(review?.created_at)
 }
 
 function latestReviewTime(items) {

@@ -10,6 +10,7 @@ from app.models.enums import ReviewStatus
 
 
 class ReviewCreate(BaseModel):
+    order_id: int | None = None
     order_item_id: int | None = None
     rating: int = Field(ge=1, le=5)
     content: str | None = Field(default=None, max_length=3000)
@@ -17,6 +18,7 @@ class ReviewCreate(BaseModel):
 
 
 class ReviewDraftUpsert(BaseModel):
+    order_id: int | None = None
     order_item_id: int | None = None
     rating: int | None = Field(default=None, ge=1, le=5)
     content: str | None = Field(default=None, max_length=3000)
@@ -55,6 +57,7 @@ class ReviewPublic(BaseModel):
 
     id: int
     user_id: int
+    order_id: int | None = None
     order_item_id: int | None = None
     spu_id: int
     sku_id: int | None = None
@@ -68,9 +71,6 @@ class ReviewPublic(BaseModel):
     buyer_avatar_url: str | None = None
     product_name: str | None = None
     product_cover_image_url: str | None = None
-    sku_spec_name: str | None = None
-    sku_unit: str | None = None
-    sku_spec_attrs_json: dict | None = None
     like_count: int = 0
     comment_count: int = 0
     has_seller_reply: bool = False
@@ -99,15 +99,13 @@ class ReviewDraftListResponse(BaseModel):
 
 
 class ReviewableOrderItem(BaseModel):
-    order_item_id: int
     order_id: int
+    order_item_id: int | None = None
     order_no: str
-    sku_id: int
-    sku_spec_name: str
-    sku_unit: str | None = None
-    sku_spec_attrs_json: dict | None = None
-    unit_price: Decimal
+    spu_id: int
+    order_item_count: int = 1
     quantity: int
+    unit_price: Decimal
     completed_at: datetime | None = None
     already_reviewed: bool = False
 

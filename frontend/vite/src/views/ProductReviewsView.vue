@@ -1,5 +1,7 @@
 <template>
   <section class="buyer-page product-reviews-page">
+    <FloatingFeedback :message="message" type="error" @clear="message = ''" />
+
     <button class="detail-back" type="button" @click="goBack">
       <ArrowLeft :size="18" />
       <span>返回商品</span>
@@ -27,7 +29,6 @@
       </div>
     </div>
 
-    <p v-if="message" class="form-message form-message--error">{{ message }}</p>
     <div v-if="showLoading" class="loading-hint loading-hint--block">正在加载评价</div>
 
     <div v-else-if="reviews.length" class="review-wall">
@@ -86,8 +87,8 @@ import { apiErrorMessage, mediaUrl } from '../api/http'
 import { getProductDetail, getProductReviewEligibility, likeReview, listProductReviews, unlikeReview } from '../api/products'
 import { useAuthStore } from '../stores/auth'
 import { useDelayedBusy } from '../composables/useDelayedBusy'
-import { formatSkuDisplay } from '../utils/sku'
 import { formatReviewTime } from '../utils/date'
+import FloatingFeedback from '../components/layout/FloatingFeedback.vue'
 
 const PAGE_SIZE = 12
 
@@ -108,9 +109,7 @@ const totalPages = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)
 const hasReviewableOrderItem = computed(() =>
   Boolean(reviewEligibility.value?.reviewable_items?.some((item) => !item.already_reviewed)),
 )
-const canWriteReview = computed(() =>
-  Boolean(reviewEligibility.value?.can_write_free_review || hasReviewableOrderItem.value),
-)
+const canWriteReview = computed(() => hasReviewableOrderItem.value)
 const reviewTotalText = computed(() => (total.value > 9999 ? '9999+' : total.value))
 
 function goBack() {
@@ -139,13 +138,8 @@ function displayReviewName(review) {
   return name.length > 12 ? `${name.slice(0, 12)}*` : name
 }
 
-function reviewSku(review) {
-  if (!review?.sku_id) return ''
-  return formatSkuDisplay(review)
-}
-
 function reviewMeta(review) {
-  return [reviewSku(review), formatReviewTime(review?.created_at)].filter(Boolean).join(' · ')
+  return formatReviewTime(review?.created_at)
 }
 
 async function loadReviews() {

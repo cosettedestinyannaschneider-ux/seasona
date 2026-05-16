@@ -43,14 +43,6 @@
               <small>购买数量：{{ item.quantity }} 件</small>
             </div>
             <b>￥{{ money(item.total_amount) }}</b>
-            <button
-              v-if="order.status === 'COMPLETED' && !item.review"
-              class="review-shortcut"
-              type="button"
-              @click="openReview(item)"
-            >
-              写评价
-            </button>
           </article>
         </div>
 
@@ -196,6 +188,14 @@ function deliveryText(value) {
   return '订单已结束'
 }
 
+function reviewReturnTarget() {
+  const value = Array.isArray(route.query.from) ? route.query.from[0] : route.query.from
+  if (typeof value === 'string' && value.startsWith('/') && !value.startsWith('//')) {
+    return value
+  }
+  return '/orders'
+}
+
 function setMessage(text, type = 'info') {
   message.value = text
   messageType.value = type
@@ -277,12 +277,10 @@ function openReview(item) {
     name: 'review-write',
     params: { id: item.spu_id },
     query: {
-      order_item_id: item.id,
-      from: route.fullPath,
+      order_id: order.value.id,
+      from: reviewReturnTarget(),
       product_name: item.product_name_snapshot || '',
       cover_image_url: item.cover_image_url_snapshot || '',
-      sku_spec_name: item.spec_name_snapshot || '',
-      sku_unit: item.sku_unit || '',
     },
   })
 }

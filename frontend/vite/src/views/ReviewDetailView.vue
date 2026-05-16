@@ -84,8 +84,16 @@
       </section>
 
       <form v-if="canReply" class="review-reply-input" @submit.prevent="submitReply">
-        <input v-model.trim="replyContent" type="text" :placeholder="replyPlaceholder" />
-        <button class="primary-button" type="submit" :disabled="!replyContent || replying">发送</button>
+        <div class="review-reply-input__meta">
+          <span>{{ replyPlaceholder }}</span>
+          <button v-if="replyTarget" class="seller-ghost-button" type="button" @click="replyTarget = null">
+            回复主评论
+          </button>
+        </div>
+        <div class="review-reply-input__row">
+          <input v-model.trim="replyContent" type="text" :placeholder="replyPlaceholder" />
+          <button class="primary-button" type="submit" :disabled="!replyContent || replying">发送</button>
+        </div>
       </form>
     </template>
   </section>
@@ -100,7 +108,6 @@ import { createReviewComment, deleteReview, deleteReviewComment, getReviewDetail
 import { useAuthStore } from '../stores/auth'
 import { useDelayedBusy } from '../composables/useDelayedBusy'
 import { formatReviewTime } from '../utils/date'
-import { formatSkuDisplay } from '../utils/sku'
 
 const route = useRoute()
 const router = useRouter()
@@ -141,7 +148,7 @@ function commentAuthorName(comment) {
 }
 
 function reviewMeta(item) {
-  return [item?.sku_id ? formatSkuDisplay(item) : '', formatReviewTime(item?.created_at)].filter(Boolean).join(' · ')
+  return formatReviewTime(item?.created_at)
 }
 
 function stars(rating) {

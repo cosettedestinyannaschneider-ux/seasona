@@ -258,6 +258,7 @@ def create_review(
         review = create_product_review(
             db,
             current_buyer,
+            order_id=payload.order_id,
             order_item_id=payload.order_item_id,
             rating=payload.rating,
             content=payload.content,
@@ -276,7 +277,7 @@ def create_review(
         if _is_integrity_error(exc):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Order item already reviewed.",
+                detail="Order already reviewed.",
             ) from exc
         raise
 

@@ -1411,17 +1411,18 @@ def _order_item_rows(db: Any, order_id: int) -> list[OrderItem]:
     ).scalars().all()
 
 
-def _reviews_by_order_item(db: Any, order_item_ids: Sequence[int]) -> dict[int, ProductReview]:
-    if not order_item_ids:
+def _reviews_by_order_target(db: Any, order_id: int, spu_ids: Sequence[int]) -> dict[tuple[int, int], ProductReview]:
+    if not spu_ids:
         return {}
     reviews = db.execute(
         select(ProductReview).where(
-            ProductReview.order_item_id.in_(order_item_ids),
+            ProductReview.order_id == order_id,
+            ProductReview.spu_id.in_(spu_ids),
             ProductReview.status == ReviewStatus.VISIBLE,
             ProductReview.deleted_at.is_(None),
         )
     ).scalars().all()
-    return {review.order_item_id: review for review in reviews}
+    return {(review.order_id or 0, review.spu_id): review for review in reviews}
 
 
 def _active_refunds_by_order_ids(db: Any, order_ids: Sequence[int]) -> dict[int, RefundApplication]:
@@ -1504,7 +1505,7 @@ def _order_to_public(
 def _order_to_detail(db: Any, row: Any, items: Sequence[OrderItem]) -> OrderDetail:
     active_refund = _active_refunds_by_order_ids(db, [row.Order.id]).get(row.Order.id)
     public = _order_to_public(row, active_refund, _order_summary_from_items(items))
-    reviews = _reviews_by_order_item(db, [item.id for item in items])
+    reviews = _reviews_by_order_target(db, row.Order.id, [item.spu_id for item in items])
     sku_ids = {item.sku_id for item in items}
     skus = {
         sku.id: sku
@@ -1527,8 +1528,8 @@ def _order_to_detail(db: Any, row: Any, items: Sequence[OrderItem]) -> OrderDeta
                 quantity=item.quantity,
                 total_amount=item.total_amount,
                 review=(
-                    ReviewPublic.model_validate(reviews[item.id])
-                    if item.id in reviews
+                    ReviewPublic.model_validate(reviews[(row.Order.id, item.spu_id)])
+                    if (row.Order.id, item.spu_id) in reviews
                     else None
                 ),
             )
@@ -2228,27 +2229,35 @@ def create_product_review(
     buyer: Any,
     *,
     spu_id: int | None = None,
+    order_id: int | None = None,
     order_item_id: int | None = None,
     rating: int,
     content: str | None,
     images_json: list[str] | None,
 ) -> ReviewPublic:
     _ensure_buyer(buyer)
-    target = _review_target_for_buyer(db, buyer, spu_id=spu_id, order_item_id=order_item_id)
+    target = _review_target_for_buyer(
+        db,
+        buyer,
+        spu_id=spu_id,
+        order_id=order_id,
+        order_item_id=order_item_id,
+    )
     existing = _find_active_review_for_target(
         db,
         buyer.id,
         target["spu_id"],
-        target["order_item_id"],
+        target["order_id"],
         include_drafts=True,
     )
     if existing is not None and existing.status == ReviewStatus.VISIBLE:
-        if target["order_item_id"] is not None:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Order item already reviewed.")
+        if target["order_id"] is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Order already reviewed.")
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Product already reviewed.")
 
     review = existing or ProductReview(
         user_id=buyer.id,
+        order_id=target["order_id"],
         order_item_id=target["order_item_id"],
         spu_id=target["spu_id"],
         sku_id=target["sku_id"],
@@ -2268,18 +2277,25 @@ def save_product_review_draft(
     buyer: Any,
     *,
     spu_id: int,
+    order_id: int | None,
     order_item_id: int | None,
     rating: int | None,
     content: str | None,
     images_json: list[str] | None,
 ) -> ReviewPublic:
     _ensure_buyer(buyer)
-    target = _review_target_for_buyer(db, buyer, spu_id=spu_id, order_item_id=order_item_id)
+    target = _review_target_for_buyer(
+        db,
+        buyer,
+        spu_id=spu_id,
+        order_id=order_id,
+        order_item_id=order_item_id,
+    )
     published = _find_active_review_for_target(
         db,
         buyer.id,
         target["spu_id"],
-        target["order_item_id"],
+        target["order_id"],
         status_filter=ReviewStatus.VISIBLE,
     )
     if published is not None:
@@ -2289,12 +2305,13 @@ def save_product_review_draft(
         db,
         buyer.id,
         target["spu_id"],
-        target["order_item_id"],
+        target["order_id"],
         status_filter=ReviewStatus.PENDING,
     )
     if draft is None:
         draft = ProductReview(
             user_id=buyer.id,
+            order_id=target["order_id"],
             order_item_id=target["order_item_id"],
             spu_id=target["spu_id"],
             sku_id=target["sku_id"],
@@ -2314,15 +2331,22 @@ def get_product_review_draft(
     buyer: Any,
     *,
     spu_id: int,
+    order_id: int | None = None,
     order_item_id: int | None = None,
 ) -> ReviewPublic | None:
     _ensure_buyer(buyer)
-    target = _review_target_for_buyer(db, buyer, spu_id=spu_id, order_item_id=order_item_id)
+    target = _review_target_for_buyer(
+        db,
+        buyer,
+        spu_id=spu_id,
+        order_id=order_id,
+        order_item_id=order_item_id,
+    )
     draft = _find_active_review_for_target(
         db,
         buyer.id,
         target["spu_id"],
-        target["order_item_id"],
+        target["order_id"],
         status_filter=ReviewStatus.PENDING,
     )
     if draft is None:
@@ -2361,13 +2385,14 @@ def get_product_review_eligibility(db: Any, buyer: Any, spu_id: int) -> ReviewEl
     _ensure_buyer(buyer)
     _ensure_public_review_product(db, spu_id)
     completed_rows = _completed_review_order_rows(db, buyer.id, spu_id)
+    completed_groups = _group_completed_review_targets(completed_rows)
     reviewed_order_ids = {
-        review.order_item_id
+        review.order_id
         for review in db.execute(
             select(ProductReview).where(
                 ProductReview.user_id == buyer.id,
                 ProductReview.spu_id == spu_id,
-                ProductReview.order_item_id.is_not(None),
+                ProductReview.order_id.is_not(None),
                 ProductReview.status == ReviewStatus.VISIBLE,
                 ProductReview.deleted_at.is_(None),
             )
@@ -2382,24 +2407,22 @@ def get_product_review_eligibility(db: Any, buyer: Any, spu_id: int) -> ReviewEl
     ) is not None
     reviewable_items = [
         ReviewableOrderItem(
-            order_item_id=row.OrderItem.id,
-            order_id=row.Order.id,
-            order_no=row.Order.order_no,
-            sku_id=row.OrderItem.sku_id,
-            sku_spec_name=row.ProductSku.spec_name,
-            sku_unit=row.ProductSku.unit,
-            sku_spec_attrs_json=row.ProductSku.spec_attrs_json,
-            unit_price=row.OrderItem.unit_price,
-            quantity=row.OrderItem.quantity,
-            completed_at=row.Order.updated_at,
-            already_reviewed=row.OrderItem.id in reviewed_order_ids,
+            order_item_id=row["order_item_id"],
+            order_id=row["order_id"],
+            order_no=row["order_no"],
+            spu_id=row["spu_id"],
+            order_item_count=row["order_item_count"],
+            quantity=row["quantity"],
+            unit_price=row["unit_price"],
+            completed_at=row["completed_at"],
+            already_reviewed=row["order_id"] in reviewed_order_ids,
         )
-        for row in completed_rows
+        for row in completed_groups
     ]
     return ReviewEligibilityResponse(
-        can_write_free_review=bool(completed_rows) and not free_review_exists,
+        can_write_free_review=bool(completed_groups) and not free_review_exists,
         free_review_exists=free_review_exists,
-        has_completed_purchase=bool(completed_rows),
+        has_completed_purchase=bool(completed_groups),
         reviewable_items=reviewable_items,
     )
 
@@ -2543,7 +2566,6 @@ def _review_public_items(db: Any, reviews: Sequence[ProductReview], viewer: Any 
         return []
     user_ids = {review.user_id for review in reviews}
     spu_ids = {review.spu_id for review in reviews}
-    sku_ids = {review.sku_id for review in reviews if review.sku_id is not None}
     review_ids = {review.id for review in reviews}
     users = {
         user.id: user
@@ -2553,12 +2575,6 @@ def _review_public_items(db: Any, reviews: Sequence[ProductReview], viewer: Any 
         product.id: product
         for product in db.execute(select(ProductSpu).where(ProductSpu.id.in_(spu_ids))).scalars().all()
     }
-    skus = {}
-    if sku_ids:
-        skus = {
-            sku.id: sku
-            for sku in db.execute(select(ProductSku).where(ProductSku.id.in_(sku_ids))).scalars().all()
-        }
     like_counts = dict(
         db.execute(
             select(ProductReviewLike.review_id, func.count(ProductReviewLike.id))
@@ -2616,7 +2632,6 @@ def _review_public_items(db: Any, reviews: Sequence[ProductReview], viewer: Any 
     items: list[ReviewPublic] = []
     for review in reviews:
         product = products.get(review.spu_id)
-        sku = skus.get(review.sku_id)
         user_account = users.get(review.user_id)
         items.append(
             ReviewPublic.model_validate(review).model_copy(
@@ -2624,11 +2639,9 @@ def _review_public_items(db: Any, reviews: Sequence[ProductReview], viewer: Any 
                     "buyer_username": user_account.username if user_account else None,
                     "buyer_nickname": user_account.nickname if user_account else None,
                     "buyer_avatar_url": user_account.avatar_url if user_account else None,
+                    "order_id": review.order_id,
                     "product_name": product.name if product else None,
                     "product_cover_image_url": product.cover_image_url if product else None,
-                    "sku_spec_name": sku.spec_name if sku else None,
-                    "sku_unit": sku.unit if sku else None,
-                    "sku_spec_attrs_json": sku.spec_attrs_json if sku else None,
                     "seller_reply": seller_reply_text.get(review.id),
                     "like_count": int(like_counts.get(review.id, 0) or 0),
                     "comment_count": int(comment_counts.get(review.id, 0) or 0),
@@ -2797,8 +2810,39 @@ def _review_target_for_buyer(
     buyer: Any,
     *,
     spu_id: int | None,
+    order_id: int | None,
     order_item_id: int | None,
 ) -> dict[str, int | None]:
+    if order_id is not None:
+        order = db.execute(
+            select(Order)
+            .where(Order.id == order_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        if order is None or order.buyer_id != buyer.id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found.")
+        if order.status != OrderStatus.COMPLETED:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only completed orders can be reviewed.")
+        if spu_id is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Product id is required.")
+        order_items = db.execute(
+            select(OrderItem)
+            .where(OrderItem.order_id == order.id, OrderItem.spu_id == spu_id)
+            .order_by(OrderItem.id.asc())
+        ).scalars().all()
+        if not order_items:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Order item does not belong to product.")
+        if order_item_id is not None and all(item.id != order_item_id for item in order_items):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Order item does not belong to product.")
+        representative = order_items[0]
+        return {
+            "spu_id": representative.spu_id,
+            "order_id": order.id,
+            "order_item_id": representative.id,
+            "sku_id": representative.sku_id,
+        }
+
     if order_item_id is not None:
         row = db.execute(
             select(OrderItem, Order)
@@ -2813,10 +2857,17 @@ def _review_target_for_buyer(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only completed orders can be reviewed.")
         if spu_id is not None and row.OrderItem.spu_id != spu_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Order item does not belong to product.")
+        representative = db.execute(
+            select(OrderItem)
+            .where(OrderItem.order_id == row.Order.id, OrderItem.spu_id == row.OrderItem.spu_id)
+            .order_by(OrderItem.id.asc())
+        ).scalars().first()
+        representative = representative or row.OrderItem
         return {
-            "spu_id": row.OrderItem.spu_id,
-            "order_item_id": row.OrderItem.id,
-            "sku_id": row.OrderItem.sku_id,
+            "spu_id": representative.spu_id,
+            "order_id": row.Order.id,
+            "order_item_id": representative.id,
+            "sku_id": representative.sku_id,
         }
 
     if spu_id is None:
@@ -2824,7 +2875,7 @@ def _review_target_for_buyer(
     _ensure_public_review_product(db, spu_id)
     if not _completed_review_order_rows(db, buyer.id, spu_id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only buyers who completed orders can review.")
-    return {"spu_id": spu_id, "order_item_id": None, "sku_id": None}
+    return {"spu_id": spu_id, "order_id": None, "order_item_id": None, "sku_id": None}
 
 
 def _ensure_public_review_product(db: Any, spu_id: int) -> ProductSpu:
@@ -2852,11 +2903,40 @@ def _completed_review_order_rows(db: Any, buyer_id: int, spu_id: int) -> list[An
     ).all()
 
 
+def _group_completed_review_targets(rows: Sequence[Any]) -> list[dict[str, Any]]:
+    grouped: dict[tuple[int, int], dict[str, Any]] = {}
+    for row in rows:
+        key = (row.Order.id, row.OrderItem.spu_id)
+        item = grouped.setdefault(
+            key,
+            {
+                "order_id": row.Order.id,
+                "order_item_id": row.OrderItem.id,
+                "order_no": row.Order.order_no,
+                "spu_id": row.OrderItem.spu_id,
+                "order_item_count": 0,
+                "quantity": 0,
+                "unit_price": row.OrderItem.unit_price,
+                "completed_at": row.Order.updated_at,
+            },
+        )
+        item["order_item_count"] += 1
+        item["quantity"] += row.OrderItem.quantity
+        if row.OrderItem.id < item["order_item_id"]:
+            item["order_item_id"] = row.OrderItem.id
+            item["unit_price"] = row.OrderItem.unit_price
+    return sorted(
+        grouped.values(),
+        key=lambda item: (item["completed_at"], item["order_id"]),
+        reverse=True,
+    )
+
+
 def _find_active_review_for_target(
     db: Any,
     user_id: int,
     spu_id: int,
-    order_item_id: int | None,
+    order_id: int | None,
     *,
     include_drafts: bool = False,
     status_filter: ReviewStatus | None = None,
@@ -2866,10 +2946,10 @@ def _find_active_review_for_target(
         ProductReview.spu_id == spu_id,
         ProductReview.deleted_at.is_(None),
     )
-    if order_item_id is None:
-        statement = statement.where(ProductReview.order_item_id.is_(None))
+    if order_id is None:
+        statement = statement.where(ProductReview.order_id.is_(None))
     else:
-        statement = statement.where(ProductReview.order_item_id == order_item_id)
+        statement = statement.where(ProductReview.order_id == order_id)
     if status_filter is not None:
         statement = statement.where(ProductReview.status == status_filter)
     elif not include_drafts:

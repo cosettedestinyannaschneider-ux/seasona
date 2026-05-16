@@ -1,5 +1,7 @@
 <template>
   <section class="buyer-page review-write-page">
+    <FloatingFeedback :message="message" :type="messageType" @clear="clearMessage" />
+
     <button class="detail-back" type="button" @click="cancelWrite">
       <ArrowLeft :size="18" />
       <span>返回</span>
@@ -11,26 +13,24 @@
       <div>
         <span class="section-kicker">Write Review</span>
         <h1>为 {{ product.name }} 写评论</h1>
-        <p v-if="selectedOrderItem">本次评价关联 {{ formatSkuDisplay(selectedOrderItem) }}</p>
-        <p v-else>这是一条商品评论，不绑定具体订单规格。</p>
+        <p v-if="selectedOrderItem">本次评价关联订单 {{ selectedOrderItem.order_no }}，共 {{ selectedOrderItem.quantity }} 件</p>
+        <p v-else>请选择一笔可评价的已完成订单后发布评论。</p>
       </div>
     </div>
 
-    <p v-if="message" class="form-message" :class="{ 'form-message--error': messageType === 'error' }">{{ message }}</p>
     <div v-if="showLoading" class="loading-hint loading-hint--block">正在加载评论编辑器</div>
 
     <section v-else-if="product" class="review-compose-panel">
-      <div v-if="eligibleOrderItems.length && !lockedOrderItemId" class="review-compose-field">
+      <div v-if="eligibleOrderItems.length && !lockedOrderItemId && !lockedOrderId" class="review-compose-field">
         <label>关联订单</label>
         <select v-model="selectedOrderItemId">
-          <option value="" :disabled="!eligibility?.can_write_free_review">不关联订单，只写商品评论</option>
           <option
             v-for="item in eligibleOrderItems"
             :key="item.order_item_id"
             :value="String(item.order_item_id)"
             :disabled="item.already_reviewed"
           >
-            {{ item.order_no }} · {{ formatSkuDisplay(item) }}{{ item.already_reviewed ? '（已评价）' : '' }}
+            {{ item.order_no }} · 共 {{ item.quantity }} 件{{ item.already_reviewed ? '（已评价）' : '' }}
           </option>
         </select>
       </div>
@@ -69,10 +69,26 @@
 
       <div class="review-compose-actions">
         <button class="seller-ghost-button" type="button" @click="cancelWrite">取消</button>
-        <button class="secondary-button" type="button" :disabled="saving" @click="saveDraftNow">保存为草稿</button>
-        <button class="primary-button" type="button" :disabled="saving || publishing" @click="publishReview">发布</button>
+        <button class="secondary-button" type="button" :disabled="saving || !hasReviewTarget" @click="saveDraftNow(false)">保存为草稿</button>
+        <button class="primary-button" type="button" :disabled="saving || publishing || !hasReviewTarget" @click="publishReview">发布</button>
       </div>
     </section>
+
+    <div v-if="draftConfirmVisible" class="confirm-overlay">
+      <div class="confirm-panel">
+        <h2>保存评论草稿？</h2>
+        <p>当前评论还没有发布，可以保存为草稿后离开，也可以放弃这次修改。</p>
+        <div class="confirm-actions">
+          <button class="seller-ghost-button" type="button" @click="stayOnEditor">继续编辑</button>
+          <button class="seller-ghost-button seller-ghost-button--danger" type="button" @click="discardDraftAndLeave">
+            放弃修改
+          </button>
+          <button class="primary-button" type="button" :disabled="saving" @click="saveDraftAndLeave">
+            保存草稿并离开
+          </button>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -91,7 +107,7 @@ import { apiErrorMessage, mediaUrl } from '../api/http'
 import { uploadReviewImage } from '../api/uploads'
 import { useAuthStore } from '../stores/auth'
 import { useDelayedBusy } from '../composables/useDelayedBusy'
-import { formatSkuDisplay } from '../utils/sku'
+import FloatingFeedback from '../components/layout/FloatingFeedback.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -108,6 +124,8 @@ const message = ref('')
 const messageType = ref('info')
 const imageInput = ref(null)
 const selectedOrderItemId = ref('')
+const draftConfirmVisible = ref(false)
+const pendingLeaveTarget = ref('')
 const showLoading = useDelayedBusy(loading)
 const form = reactive({
   rating: 5,
@@ -116,16 +134,27 @@ const form = reactive({
 })
 
 let autoSaveTimer = 0
+let pendingLeaveNext = null
 let initializing = true
 const lockedOrderItemId = computed(() => {
   const value = Array.isArray(route.query.order_item_id) ? route.query.order_item_id[0] : route.query.order_item_id
   return value ? String(value) : ''
 })
+const lockedOrderId = computed(() => {
+  const value = Array.isArray(route.query.order_id) ? route.query.order_id[0] : route.query.order_id
+  return value ? String(value) : ''
+})
 const selectedOrderItem = computed(() => {
-  if (!selectedOrderItemId.value) return null
-  return eligibleOrderItems.value.find((item) => String(item.order_item_id) === String(selectedOrderItemId.value)) || null
+  if (selectedOrderItemId.value) {
+    return eligibleOrderItems.value.find((item) => String(item.order_item_id) === String(selectedOrderItemId.value)) || null
+  }
+  if (lockedOrderId.value) {
+    return eligibleOrderItems.value.find((item) => String(item.order_id) === String(lockedOrderId.value)) || null
+  }
+  return null
 })
 const eligibleOrderItems = computed(() => eligibility.value?.reviewable_items || [])
+const hasReviewTarget = computed(() => Boolean(selectedOrderItem.value?.order_id))
 
 function queryValue(name, fallback = '') {
   const value = route.query[name]
@@ -144,19 +173,18 @@ function fallbackProductFromQuery() {
 
 function fallbackEligibilityFromQuery() {
   const orderItemId = Number(lockedOrderItemId.value)
+  const orderId = Number(lockedOrderId.value)
   return {
     can_write_free_review: false,
     free_review_exists: false,
     has_completed_purchase: true,
     reviewable_items: [
       {
-        order_item_id: orderItemId,
-        order_id: 0,
-        order_no: '历史订单',
-        sku_id: 0,
-        sku_spec_name: queryValue('sku_spec_name', '默认规格'),
-        sku_unit: queryValue('sku_unit', ''),
-        sku_spec_attrs_json: null,
+        order_id: Number.isFinite(orderId) && orderId > 0 ? orderId : 0,
+        order_item_id: Number.isFinite(orderItemId) && orderItemId > 0 ? orderItemId : null,
+        order_no: queryValue('order_no', '历史订单'),
+        spu_id: Number(route.params.id),
+        order_item_count: 1,
         unit_price: 0,
         quantity: 1,
         completed_at: null,
@@ -177,6 +205,15 @@ function markDirty(mutator) {
   dirty.value = true
 }
 
+function setMessage(text, type = 'info') {
+  message.value = text
+  messageType.value = type
+}
+
+function clearMessage() {
+  message.value = ''
+}
+
 function scheduleDraftSave() {
   if (!dirty.value || publishing.value || !product.value) return
   window.clearTimeout(autoSaveTimer)
@@ -186,29 +223,36 @@ function scheduleDraftSave() {
 }
 
 async function saveDraftNow(silent = false) {
-  if (!product.value || saving.value) return
+  if (!product.value || saving.value) return false
+  if (!hasReviewTarget.value) {
+    if (!silent) setMessage('请选择一笔可评价的已完成订单后再保存草稿', 'error')
+    return false
+  }
   saving.value = true
   try {
     await saveProductReviewDraft(product.value.spu_id, buildPayload(true))
     dirty.value = false
     savedOnce.value = true
     if (!silent) {
-      message.value = '草稿已保存'
-      messageType.value = 'info'
+      setMessage('草稿已保存')
     }
+    return true
   } catch (error) {
     if (!silent) {
-      message.value = apiErrorMessage(error, '草稿保存失败')
-      messageType.value = 'error'
+      setMessage(apiErrorMessage(error, '草稿保存失败'), 'error')
     }
+    return false
   } finally {
     saving.value = false
   }
 }
 
 function buildPayload(allowEmptyRating = false) {
+  const orderId = selectedOrderItem.value?.order_id || (lockedOrderId.value ? Number(lockedOrderId.value) : null)
+  const orderItemId = selectedOrderItem.value?.order_item_id || (selectedOrderItemId.value ? Number(selectedOrderItemId.value) : null)
   return {
-    order_item_id: selectedOrderItemId.value ? Number(selectedOrderItemId.value) : null,
+    order_id: orderId || null,
+    order_item_id: orderItemId || null,
     rating: allowEmptyRating ? form.rating || null : form.rating,
     content: form.content.trim() || null,
     images_json: form.images_json,
@@ -216,19 +260,21 @@ function buildPayload(allowEmptyRating = false) {
 }
 
 async function publishReview() {
+  if (!hasReviewTarget.value) {
+    setMessage('请选择一笔可评价的已完成订单后再发布评论', 'error')
+    return
+  }
   if (!form.rating) {
-    message.value = '请选择评分'
-    messageType.value = 'error'
+    setMessage('请选择评分', 'error')
     return
   }
   publishing.value = true
   try {
     const review = await createProductReview(product.value.spu_id, buildPayload())
     dirty.value = false
-    router.replace({ name: 'review-detail', params: { id: review.id }, query: { from: `/product/${product.value.spu_id}/reviews` } })
+    router.replace({ name: 'review-detail', params: { id: review.id }, query: { from: backTarget() } })
   } catch (error) {
-    message.value = apiErrorMessage(error, '评论发布失败')
-    messageType.value = 'error'
+    setMessage(apiErrorMessage(error, '评论发布失败'), 'error')
   } finally {
     publishing.value = false
   }
@@ -246,8 +292,7 @@ async function handleImageUpload(event) {
     }
     dirty.value = true
   } catch (error) {
-    message.value = apiErrorMessage(error, '图片上传失败，请检查图片大小和网络')
-    messageType.value = 'error'
+    setMessage(apiErrorMessage(error, '图片上传失败，请检查图片大小和网络'), 'error')
   } finally {
     uploading.value = false
   }
@@ -259,21 +304,49 @@ function removeImage(url) {
 }
 
 function cancelWrite() {
-  if (dirty.value && !window.confirm('评论尚未保存，是否保存为草稿？')) {
-    router.push(backTarget())
-    return
-  }
-  if (dirty.value) {
-    saveDraftNow(true).finally(() => router.push(backTarget()))
-    return
-  }
-  router.push(backTarget())
+  requestLeave(backTarget())
 }
 
-function beforeUnload(event) {
-  if (!dirty.value) return
-  event.preventDefault()
-  event.returnValue = ''
+function requestLeave(target = backTarget()) {
+  if (!dirty.value) {
+    router.push(target)
+    return
+  }
+  pendingLeaveTarget.value = target
+  draftConfirmVisible.value = true
+}
+
+function clearDraftConfirm() {
+  draftConfirmVisible.value = false
+  pendingLeaveTarget.value = ''
+  pendingLeaveNext = null
+}
+
+function stayOnEditor() {
+  if (pendingLeaveNext) pendingLeaveNext(false)
+  clearDraftConfirm()
+}
+
+function leaveEditor() {
+  const next = pendingLeaveNext
+  const target = pendingLeaveTarget.value || backTarget()
+  clearDraftConfirm()
+  if (next) {
+    next()
+    return
+  }
+  router.push(target)
+}
+
+async function saveDraftAndLeave() {
+  const success = await saveDraftNow(false)
+  if (!success) return
+  leaveEditor()
+}
+
+function discardDraftAndLeave() {
+  dirty.value = false
+  leaveEditor()
 }
 
 watch(form, scheduleDraftSave, { deep: true })
@@ -288,11 +361,9 @@ onBeforeRouteLeave((_to, _from, next) => {
     next()
     return
   }
-  if (window.confirm('评论尚未保存，离开前保存为草稿？')) {
-    saveDraftNow(true).finally(() => next())
-  } else {
-    next()
-  }
+  pendingLeaveNext = next
+  pendingLeaveTarget.value = ''
+  draftConfirmVisible.value = true
 })
 
 onMounted(async () => {
@@ -314,14 +385,18 @@ onMounted(async () => {
       if (!lockedOrderItemId.value) throw error
       eligibility.value = fallbackEligibilityFromQuery()
     }
-    selectedOrderItemId.value = lockedOrderItemId.value
-    if (!selectedOrderItemId.value && !eligibility.value.can_write_free_review) {
+    const lockedOrderItem = lockedOrderId.value
+      ? eligibleOrderItems.value.find((item) => String(item.order_id) === lockedOrderId.value)
+      : null
+    selectedOrderItemId.value = lockedOrderItemId.value || (lockedOrderItem?.order_item_id ? String(lockedOrderItem.order_item_id) : '')
+    if (!selectedOrderItemId.value) {
       const firstReviewableItem = eligibleOrderItems.value.find((item) => !item.already_reviewed)
       if (firstReviewableItem) {
         selectedOrderItemId.value = String(firstReviewableItem.order_item_id)
       }
     }
-    const draft = await getProductReviewDraft(product.value.spu_id, selectedOrderItemId.value || null)
+    const draftOrderId = selectedOrderItem.value?.order_id || (lockedOrderId.value ? Number(lockedOrderId.value) : null)
+    const draft = await getProductReviewDraft(product.value.spu_id, selectedOrderItemId.value || null, draftOrderId)
     if (draft) {
       if (draft.product_name) {
         product.value = {
@@ -336,22 +411,18 @@ onMounted(async () => {
       dirty.value = false
       savedOnce.value = true
     }
-    if (!selectedOrderItemId.value && !eligibility.value.can_write_free_review) {
-      message.value = eligibility.value.has_completed_purchase ? '你已经发表过该商品的商品评论' : '购买并完成订单后才能评价该商品'
-      messageType.value = 'error'
+    if (!selectedOrderItemId.value) {
+      setMessage(eligibility.value.has_completed_purchase ? '你已经发表过该商品的商品评论' : '购买并完成订单后才能评价该商品', 'error')
     }
   } catch (error) {
-    message.value = apiErrorMessage(error, '评论编辑器加载失败')
-    messageType.value = 'error'
+    setMessage(apiErrorMessage(error, '评论编辑器加载失败'), 'error')
   } finally {
     loading.value = false
     initializing = false
   }
-  window.addEventListener('beforeunload', beforeUnload)
 })
 
 onBeforeUnmount(() => {
   window.clearTimeout(autoSaveTimer)
-  window.removeEventListener('beforeunload', beforeUnload)
 })
 </script>

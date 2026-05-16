@@ -7148,6 +7148,12 @@ main {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.review-preview--bubbles {
+  align-items: stretch;
+  max-height: none !important;
+  overflow: visible !important;
+}
+
 .review-bubble {
   cursor: pointer;
   padding: 1rem;
@@ -7181,6 +7187,90 @@ main {
   color: var(--honey);
 }
 
+.review-detail-page {
+  width: min(1180px, 100%);
+  max-width: 1180px;
+  margin-inline: auto;
+}
+
+.review-detail-card,
+.review-comment-thread {
+  width: 100%;
+}
+
+.review-bubble__images {
+  position: relative;
+  z-index: 1;
+}
+
+.review-bubble__actions {
+  position: relative;
+  z-index: 2;
+  flex-wrap: wrap;
+  margin-top: 0.85rem;
+  padding-top: 0.15rem;
+}
+
+.review-bubble__actions .review-like-button {
+  position: relative;
+  z-index: 2;
+}
+
+.review-view-switch {
+  display: inline-flex;
+  gap: 0.35rem;
+  padding: 0.35rem;
+  margin-bottom: 0.2rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.review-view-switch button {
+  min-height: 2.2rem;
+  padding: 0 0.95rem;
+  color: var(--muted);
+  cursor: pointer;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.review-view-switch button.active {
+  color: var(--leaf-strong);
+  background: #fff;
+  box-shadow: 0 6px 16px rgba(47, 125, 79, 0.12);
+}
+
+.review-reply-input {
+  display: grid;
+  gap: 0.65rem;
+  align-items: start;
+  padding: 14px;
+}
+
+.review-reply-input__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.review-reply-input__meta span {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-reply-input__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.65rem;
+}
+
 @media (max-width: 640px) {
   .review-preview--bubbles,
   .review-wall {
@@ -7201,5 +7291,9 @@ main {
   .review-comment .seller-ghost-button {
     grid-column: 2;
     width: fit-content;
+  }
+
+  .review-reply-input__row {
+    grid-template-columns: 1fr;
   }
 }

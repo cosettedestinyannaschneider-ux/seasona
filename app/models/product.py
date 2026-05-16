@@ -8,7 +8,9 @@ from sqlalchemy import (
     CheckConstraint,
     Date,
     DateTime,
+    Index,
     ForeignKey,
+    and_,
     Integer,
     JSON,
     Numeric,
@@ -114,6 +116,7 @@ class ProductReview(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("user_account.id"), index=True)
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("purchase_order.id"), index=True)
     order_item_id: Mapped[int | None] = mapped_column(ForeignKey("order_item.id"), index=True)
     spu_id: Mapped[int] = mapped_column(ForeignKey("product_spu.id"), index=True)
     sku_id: Mapped[int | None] = mapped_column(ForeignKey("product_sku.id"), index=True)
@@ -126,6 +129,22 @@ class ProductReview(TimestampMixin, Base):
         index=True,
     )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    __table_args__ = (
+        Index(
+            "uq_product_review_order_spu_active",
+            "order_id",
+            "spu_id",
+            unique=True,
+            postgresql_where=and_(order_id.is_not(None), deleted_at.is_(None)),
+        ),
+        Index(
+            "uq_product_review_user_spu_free_active",
+            "user_id",
+            "spu_id",
+            unique=True,
+            postgresql_where=and_(order_id.is_(None), deleted_at.is_(None)),
+        ),
+    )
 
 
 class ProductReviewComment(TimestampMixin, Base):

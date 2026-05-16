@@ -13,8 +13,8 @@ from app.schemas.review import ReviewCreate, ReviewEligibilityResponse, ReviewLi
 router = APIRouter()
 
 
-def _review_conflict_message(order_item_id: int | None) -> str:
-    return "Order item already reviewed." if order_item_id is not None else "Product already reviewed."
+def _review_conflict_message(order_id: int | None, order_item_id: int | None) -> str:
+    return "Order already reviewed." if order_id is not None or order_item_id is not None else "Product already reviewed."
 
 
 @router.get("/categories", response_model=list[CategoryNode])
@@ -112,6 +112,7 @@ def create_product_review(
             db,
             current_buyer,
             spu_id=spu_id,
+            order_id=payload.order_id,
             order_item_id=payload.order_item_id,
             rating=payload.rating,
             content=payload.content,
@@ -129,7 +130,7 @@ def create_product_review(
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=_review_conflict_message(payload.order_item_id),
+            detail=_review_conflict_message(payload.order_id, payload.order_item_id),
         ) from exc
     except Exception:
         db.rollback()
@@ -139,13 +140,14 @@ def create_product_review(
 @router.get("/{spu_id}/review-draft", response_model=ReviewPublic | None)
 def get_product_review_draft(
     spu_id: int,
+    order_id: int | None = None,
     order_item_id: int | None = None,
     current_buyer: Any = Depends(require_roles(UserRole.BUYER)),
     db: Any = Depends(get_db),
 ) -> ReviewPublic | None:
     from app.services.commerce.service import get_product_review_draft as get_draft
 
-    return get_draft(db, current_buyer, spu_id=spu_id, order_item_id=order_item_id)
+    return get_draft(db, current_buyer, spu_id=spu_id, order_id=order_id, order_item_id=order_item_id)
 
 
 @router.put("/{spu_id}/review-draft", response_model=ReviewPublic)
@@ -162,6 +164,7 @@ def save_product_review_draft(
             db,
             current_buyer,
             spu_id=spu_id,
+            order_id=payload.order_id,
             order_item_id=payload.order_item_id,
             rating=payload.rating,
             content=payload.content,
@@ -173,7 +176,7 @@ def save_product_review_draft(
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=_review_conflict_message(payload.order_item_id),
+            detail=_review_conflict_message(payload.order_id, payload.order_item_id),
         ) from exc
     except Exception:
         db.rollback()

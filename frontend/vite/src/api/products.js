@@ -115,6 +115,7 @@ export function normalizeReview(item = {}) {
     ...item,
     id: Number(item.id),
     user_id: Number(item.user_id),
+    order_id: item.order_id == null ? null : Number(item.order_id),
     order_item_id: item.order_item_id == null ? null : Number(item.order_item_id),
     spu_id: Number(item.spu_id),
     sku_id: item.sku_id == null ? null : Number(item.sku_id),
@@ -124,9 +125,6 @@ export function normalizeReview(item = {}) {
     buyer_avatar_url: item.buyer_avatar_url || '',
     product_name: item.product_name || '',
     product_cover_image_url: item.product_cover_image_url || '',
-    sku_spec_name: item.sku_spec_name || '',
-    sku_unit: item.sku_unit || '',
-    sku_spec_attrs_json: item.sku_spec_attrs_json || null,
     content: item.content || '',
     images_json: item.images_json || [],
     seller_reply: item.seller_reply || '',
@@ -192,8 +190,9 @@ export async function createProductReview(spuId, payload) {
   return normalizeReview(data)
 }
 
-export async function getProductReviewDraft(spuId, orderItemId = null) {
+export async function getProductReviewDraft(spuId, orderItemId = null, orderId = null) {
   const params = {}
+  if (orderId) params.order_id = orderId
   if (orderItemId) params.order_item_id = orderItemId
   const { data } = await http.get(`/api/v1/products/${spuId}/review-draft`, { params })
   return data ? normalizeReview(data) : null
