@@ -42,6 +42,8 @@ class ProductSearchCard(BaseModel):
     min_price: Decimal | None = None
     max_price: Decimal | None = None
     stock_total: int = 0
+    average_rating: float | None = None
+    review_count: int = 0
     default_sku_id: int | None = None
     default_sku_unit: str | None = None
     skus: list[ProductSearchSku] = Field(default_factory=list)

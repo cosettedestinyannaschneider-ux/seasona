@@ -41,6 +41,16 @@ export function orderMatchesDisplayFilter(order, filter, role = 'buyer') {
   return orderDisplayState(order, role).key === filter
 }
 
+export function orderTitle(order = {}) {
+  const firstItem = order.items?.[0]
+  const title = order.primary_product_name || firstItem?.product_name_snapshot || order.product_name_snapshot || order.order_no
+  const count = Number(order.item_count || order.items?.length || 0)
+  if (count > 1 && title !== order.order_no) {
+    return `${title} 等 ${count} 件`
+  }
+  return title
+}
+
 export function refundStatusText(value, role = 'buyer') {
   const pending = role === 'seller' ? '待处理' : '等待卖家处理'
   return {

@@ -44,7 +44,13 @@
 
       <div class="detail-info">
         <span class="section-kicker">{{ product.category_name || '农产品' }}</span>
-        <h1>{{ product.name }}</h1>
+        <div class="detail-title-row">
+          <h1>{{ product.name }}</h1>
+          <span v-if="hasProductRating" class="rating-chip rating-chip--large">
+            <b :class="ratingToneClass(product.average_rating)">{{ formatRating(product.average_rating) }}</b>
+            <span>★</span>
+          </span>
+        </div>
         <p>{{ product.description || '商家暂未填写详细描述。' }}</p>
 
         <div class="detail-meta detail-meta--merchant">
@@ -150,7 +156,7 @@
           <div class="review-bubble__head">
             <div>
               <strong>{{ displayReviewName(review) }}</strong>
-              <small>{{ reviewSku(review) }}</small>
+              <small>{{ reviewMeta(review) }}</small>
             </div>
             <span class="review-stars">{{ stars(review.rating) }}</span>
           </div>
@@ -175,7 +181,7 @@
         <div class="review-bubble__head">
           <div>
             <strong>{{ displayReviewName(activeReview) }}</strong>
-            <small>{{ reviewSku(activeReview) }}</small>
+            <small>{{ reviewMeta(activeReview) }}</small>
           </div>
           <span class="review-stars">{{ stars(activeReview.rating) }}</span>
         </div>
@@ -246,6 +252,8 @@ import { apiErrorMessage, mediaUrl } from '../api/http'
 import { useCartStore } from '../stores/cart'
 import { useDelayedBusy } from '../composables/useDelayedBusy'
 import { formatSkuDisplay, formatSpecAttrs } from '../utils/sku'
+import { formatRating, hasRating, ratingToneClass } from '../utils/rating'
+import { formatReviewTime } from '../utils/date'
 
 const INLINE_SKU_LIMIT = 4
 
@@ -272,6 +280,7 @@ const reviewsShowLoading = useDelayedBusy(reviewsLoading)
 const selectedSku = computed(() => product.value?.skus.find((sku) => sku.id === selectedSkuId.value) || null)
 const pickerSelectedSku = computed(() => product.value?.skus.find((sku) => sku.id === pickerSkuId.value) || null)
 const hasAvailableSku = computed(() => product.value?.skus.some((sku) => !isSoldOutSku(sku)) || false)
+const hasProductRating = computed(() => hasRating(product.value?.average_rating) && Number(product.value?.review_count || 0) > 0)
 const inlineSkus = computed(() => product.value?.skus.slice(0, INLINE_SKU_LIMIT) || [])
 const previewReviews = computed(() => reviews.value.slice(0, 4))
 const selectedSkuLabel = computed(() => (selectedSku.value ? formatSkuDisplay(selectedSku.value) : ''))
@@ -351,6 +360,10 @@ function formatTraceDate(value) {
 
 function reviewSku(review) {
   return formatSkuDisplay(review)
+}
+
+function reviewMeta(review) {
+  return [reviewSku(review), formatReviewTime(review?.created_at)].filter(Boolean).join(' · ')
 }
 
 function stars(rating) {

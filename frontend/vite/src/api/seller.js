@@ -176,6 +176,7 @@ export async function listSellerReviewProducts(params = {}) {
     cover_image_url: item.product_cover_image_url,
     count: Number(item.review_count ?? 0),
     pending_reply_count: Number(item.pending_reply_count ?? 0),
+    latest_review_at: item.latest_review_at || null,
   }))
 }
 

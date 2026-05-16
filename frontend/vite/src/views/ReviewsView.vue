@@ -46,7 +46,7 @@
               <div class="review-bubble__head">
                 <div>
                   <strong>{{ stars(review.rating) }}</strong>
-                  <small>{{ reviewSku(review) }}</small>
+                  <small>{{ reviewMeta(review) }}</small>
                 </div>
                 <span v-if="hasUnreadReply(review)" class="review-unread-dot">新回复</span>
               </div>
@@ -76,7 +76,7 @@
           <div>
             <strong>{{ group.product_name }}</strong>
             <span>{{ group.skuSummary }}</span>
-            <small>{{ group.reviews.length }} 条评价</small>
+            <small>{{ groupSummary(group) }}</small>
           </div>
           <i v-if="group.unreadReplyCount" aria-hidden="true"></i>
           <button class="seller-ghost-button" type="button" @click="openGroup(group)">查看详情</button>
@@ -91,7 +91,7 @@
         <div class="review-bubble__head">
           <div>
             <strong>{{ activeReview.product_name || '商品评价' }}</strong>
-            <small>{{ reviewSku(activeReview) }}</small>
+            <small>{{ reviewMeta(activeReview) }}</small>
           </div>
           <span class="review-stars">{{ stars(activeReview.rating) }}</span>
         </div>
@@ -112,6 +112,7 @@ import { apiErrorMessage, mediaUrl } from '../api/http'
 import { listBuyerReviews } from '../api/buyer'
 import { useAuthStore } from '../stores/auth'
 import { useDelayedBusy } from '../composables/useDelayedBusy'
+import { formatReviewTime } from '../utils/date'
 import { formatSkuDisplay } from '../utils/sku'
 
 const SEEN_REPLY_KEY = 'seasona_seen_review_replies'
@@ -145,6 +146,7 @@ const reviewGroups = computed(() => {
       ...group,
       skuSummary: skuNames.slice(0, 3).join(' / ') + (skuNames.length > 3 ? ` 等 ${skuNames.length} 种规格` : ''),
       unreadReplyCount: group.reviews.filter(hasUnreadReply).length,
+      latestReviewTime: latestReviewTime(group.reviews),
     }
   })
 })
@@ -178,6 +180,22 @@ function stars(rating) {
 
 function reviewSku(review) {
   return formatSkuDisplay(review)
+}
+
+function reviewMeta(review) {
+  return [reviewSku(review), formatReviewTime(review?.created_at)].filter(Boolean).join(' · ')
+}
+
+function latestReviewTime(items) {
+  const timestamps = items
+    .map((item) => new Date(item.created_at).getTime())
+    .filter((time) => Number.isFinite(time))
+  if (!timestamps.length) return ''
+  return formatReviewTime(Math.max(...timestamps))
+}
+
+function groupSummary(group) {
+  return `${group.reviews.length} 条评价${group.latestReviewTime ? ` · 最近 ${group.latestReviewTime}` : ''}`
 }
 
 function openGroup(group) {

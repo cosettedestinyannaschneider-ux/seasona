@@ -178,6 +178,8 @@ class ProductPublic(ProductBase):
     max_price: Decimal | None = None
     stock_total: int | None = None
     image_count: int | None = None
+    average_rating: float | None = None
+    review_count: int = 0
     status: ProductStatus
     review_reason: str | None = None
     reviewed_by: int | None = None

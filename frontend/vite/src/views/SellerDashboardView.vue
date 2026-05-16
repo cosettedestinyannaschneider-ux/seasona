@@ -596,6 +596,7 @@
                       <span>{{ group.count }} 条评价</span>
                       <small v-if="group.pending_reply_count">{{ group.pending_reply_count }} 条待回复</small>
                       <small v-else>暂无待回复评价</small>
+                      <small v-if="group.latest_review_at">最近评价 {{ formatDate(group.latest_review_at) }}</small>
                     </div>
                     <i v-if="group.pending_reply_count" aria-hidden="true"></i>
                     <button class="seller-ghost-button" type="button" @click="openReviewProduct(group)">查看评论</button>

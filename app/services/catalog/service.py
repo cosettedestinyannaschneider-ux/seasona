@@ -8,9 +8,9 @@ from typing import Any
 from fastapi import HTTPException, status
 from sqlalchemy import and_, func, or_, select
 
-from app.models.enums import MerchantAuditStatus, ProductStatus, UserRole, UserStatus
+from app.models.enums import MerchantAuditStatus, ProductStatus, ReviewStatus, UserRole, UserStatus
 from app.models.order import OrderItem
-from app.models.product import ProductCategory, ProductImage, ProductSku, ProductSpu, ProductTraceability
+from app.models.product import ProductCategory, ProductImage, ProductReview, ProductSku, ProductSpu, ProductTraceability
 from app.models.user import MerchantProfile, UserAccount
 from app.schemas.product import (
     CategoryNode,
@@ -245,8 +245,22 @@ def _product_image_stats_subquery():
     )
 
 
+def _product_review_stats_subquery():
+    return (
+        select(
+            ProductReview.spu_id.label("spu_id"),
+            func.avg(ProductReview.rating).label("average_rating"),
+            func.count(ProductReview.id).label("review_count"),
+        )
+        .where(ProductReview.status == ReviewStatus.VISIBLE)
+        .group_by(ProductReview.spu_id)
+        .subquery()
+    )
+
+
 def _row_to_public_product(row: Any) -> dict[str, Any]:
     spu: ProductSpu = row.ProductSpu
+    average_rating = getattr(row, "average_rating", None)
     return {
         "id": spu.id,
         "merchant_id": spu.merchant_id,
@@ -262,6 +276,8 @@ def _row_to_public_product(row: Any) -> dict[str, Any]:
         "max_price": row.max_price,
         "stock_total": int(row.stock_total or 0),
         "image_count": int(row.image_count or 0),
+        "average_rating": float(average_rating) if average_rating is not None else None,
+        "review_count": int(getattr(row, "review_count", 0) or 0),
         "status": spu.status,
         "review_reason": spu.review_reason,
         "reviewed_by": spu.reviewed_by,
@@ -284,6 +300,7 @@ def list_public_products(
 ) -> ProductListResponse:
     sku_stats = _product_sku_stats_subquery()
     image_stats = _product_image_stats_subquery()
+    review_stats = _product_review_stats_subquery()
 
     filters = _public_product_filters()
     if keyword:
@@ -309,6 +326,7 @@ def list_public_products(
         .join(ProductCategory, ProductSpu.category_id == ProductCategory.id)
         .outerjoin(sku_stats, sku_stats.c.spu_id == ProductSpu.id)
         .outerjoin(image_stats, image_stats.c.spu_id == ProductSpu.id)
+        .outerjoin(review_stats, review_stats.c.spu_id == ProductSpu.id)
         .where(and_(*filters))
     )
     total = db.execute(select(func.count()).select_from(base_statement.subquery())).scalar_one()
@@ -317,6 +335,7 @@ def list_public_products(
     max_price_col = func.coalesce(sku_stats.c.max_price, Decimal("0.00"))
     stock_total_col = func.coalesce(sku_stats.c.stock_total, 0)
     image_count_col = func.coalesce(image_stats.c.image_count, 0)
+    review_count_col = func.coalesce(review_stats.c.review_count, 0)
 
     statement = (
         select(
@@ -328,12 +347,15 @@ def list_public_products(
             max_price_col.label("max_price"),
             stock_total_col.label("stock_total"),
             image_count_col.label("image_count"),
+            review_stats.c.average_rating.label("average_rating"),
+            review_count_col.label("review_count"),
         )
         .join(MerchantProfile, ProductSpu.merchant_id == MerchantProfile.id)
         .join(UserAccount, MerchantProfile.user_id == UserAccount.id)
         .join(ProductCategory, ProductSpu.category_id == ProductCategory.id)
         .outerjoin(sku_stats, sku_stats.c.spu_id == ProductSpu.id)
         .outerjoin(image_stats, image_stats.c.spu_id == ProductSpu.id)
+        .outerjoin(review_stats, review_stats.c.spu_id == ProductSpu.id)
         .where(and_(*filters))
     )
 
@@ -389,6 +411,7 @@ def get_public_merchant_detail(db: Any, merchant_id: int) -> ProductMerchantPubl
 def get_product_detail(db: Any, spu_id: int) -> ProductDetail:
     sku_stats = _product_sku_stats_subquery()
     image_stats = _product_image_stats_subquery()
+    review_stats = _product_review_stats_subquery()
     statement = (
         select(
             ProductSpu,
@@ -399,11 +422,14 @@ def get_product_detail(db: Any, spu_id: int) -> ProductDetail:
             func.coalesce(sku_stats.c.max_price, Decimal("0.00")).label("max_price"),
             func.coalesce(sku_stats.c.stock_total, 0).label("stock_total"),
             func.coalesce(image_stats.c.image_count, 0).label("image_count"),
+            review_stats.c.average_rating.label("average_rating"),
+            func.coalesce(review_stats.c.review_count, 0).label("review_count"),
         )
         .join(MerchantProfile, ProductSpu.merchant_id == MerchantProfile.id)
         .join(ProductCategory, ProductSpu.category_id == ProductCategory.id)
         .outerjoin(sku_stats, sku_stats.c.spu_id == ProductSpu.id)
         .outerjoin(image_stats, image_stats.c.spu_id == ProductSpu.id)
+        .outerjoin(review_stats, review_stats.c.spu_id == ProductSpu.id)
         .where(ProductSpu.id == spu_id)
     )
     row = db.execute(statement).first()

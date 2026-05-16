@@ -21,7 +21,7 @@
         <div class="review-bubble__head">
           <div>
             <strong>{{ displayReviewName(review) }}</strong>
-            <small>{{ reviewSku(review) }}</small>
+            <small>{{ reviewMeta(review) }}</small>
           </div>
           <span class="review-stars">{{ stars(review.rating) }}</span>
         </div>
@@ -50,7 +50,7 @@
         <div class="review-bubble__head">
           <div>
             <strong>{{ displayReviewName(activeReview) }}</strong>
-            <small>{{ reviewSku(activeReview) }}</small>
+            <small>{{ reviewMeta(activeReview) }}</small>
           </div>
           <span class="review-stars">{{ stars(activeReview.rating) }}</span>
         </div>
@@ -72,6 +72,7 @@ import { apiErrorMessage } from '../api/http'
 import { getProductDetail, listProductReviews } from '../api/products'
 import { useDelayedBusy } from '../composables/useDelayedBusy'
 import { formatSkuDisplay } from '../utils/sku'
+import { formatReviewTime } from '../utils/date'
 
 const PAGE_SIZE = 12
 
@@ -116,6 +117,10 @@ function displayReviewName(review) {
 
 function reviewSku(review) {
   return formatSkuDisplay(review)
+}
+
+function reviewMeta(review) {
+  return [reviewSku(review), formatReviewTime(review?.created_at)].filter(Boolean).join(' · ')
 }
 
 async function loadReviews() {

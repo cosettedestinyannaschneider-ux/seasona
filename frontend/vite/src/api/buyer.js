@@ -23,6 +23,7 @@ export function normalizeWallet(wallet = {}) {
 export function normalizeOrder(order = {}) {
   return {
     ...order,
+    item_count: Number(order.item_count ?? order.items?.length ?? 0),
     total_amount: normalizeMoney(order.total_amount),
     freight_amount: normalizeMoney(order.freight_amount),
     payable_amount: normalizeMoney(order.payable_amount),

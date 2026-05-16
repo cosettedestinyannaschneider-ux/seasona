@@ -59,6 +59,8 @@ class OrderItemPublic(BaseModel):
 class OrderPublic(BaseModel):
     id: int
     order_no: str
+    primary_product_name: str | None = None
+    item_count: int = 0
     buyer_id: int
     buyer_username: str | None = None
     seller_id: int

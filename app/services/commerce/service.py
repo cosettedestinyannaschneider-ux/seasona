@@ -1294,11 +1294,45 @@ def _active_refunds_by_order_ids(db: Any, order_ids: Sequence[int]) -> dict[int,
     return result
 
 
-def _order_to_public(row: Any, active_refund: RefundApplication | None = None) -> OrderPublic:
+def _order_summary_from_items(items: Sequence[OrderItem]) -> dict[str, Any]:
+    if not items:
+        return {"primary_product_name": None, "item_count": 0}
+    first_item = min(items, key=lambda item: item.id)
+    return {
+        "primary_product_name": first_item.product_name_snapshot,
+        "item_count": len(items),
+    }
+
+
+def _order_summaries_by_order_ids(db: Any, order_ids: Sequence[int]) -> dict[int, dict[str, Any]]:
+    if not order_ids:
+        return {}
+    items = db.execute(
+        select(OrderItem)
+        .where(OrderItem.order_id.in_(order_ids))
+        .order_by(OrderItem.order_id.asc(), OrderItem.id.asc())
+    ).scalars().all()
+    grouped: dict[int, list[OrderItem]] = defaultdict(list)
+    for item in items:
+        grouped[item.order_id].append(item)
+    return {
+        order_id: _order_summary_from_items(order_items)
+        for order_id, order_items in grouped.items()
+    }
+
+
+def _order_to_public(
+    row: Any,
+    active_refund: RefundApplication | None = None,
+    summary: dict[str, Any] | None = None,
+) -> OrderPublic:
     order: Order = row.Order
+    summary = summary or {}
     return OrderPublic(
         id=order.id,
         order_no=order.order_no,
+        primary_product_name=summary.get("primary_product_name"),
+        item_count=summary.get("item_count", 0),
         buyer_id=order.buyer_id,
         buyer_username=getattr(row, "buyer_username", None),
         seller_id=order.seller_id,
@@ -1321,7 +1355,7 @@ def _order_to_public(row: Any, active_refund: RefundApplication | None = None) -
 
 def _order_to_detail(db: Any, row: Any, items: Sequence[OrderItem]) -> OrderDetail:
     active_refund = _active_refunds_by_order_ids(db, [row.Order.id]).get(row.Order.id)
-    public = _order_to_public(row, active_refund)
+    public = _order_to_public(row, active_refund, _order_summary_from_items(items))
     reviews = _reviews_by_order_item(db, [item.id for item in items])
     sku_ids = {item.sku_id for item in items}
     skus = {
@@ -1396,9 +1430,18 @@ def list_orders(
     rows = db.execute(
         statement.order_by(Order.created_at.desc(), Order.id.desc()).offset((page - 1) * page_size).limit(page_size)
     ).all()
-    active_refunds = _active_refunds_by_order_ids(db, [row.Order.id for row in rows])
+    order_ids = [row.Order.id for row in rows]
+    active_refunds = _active_refunds_by_order_ids(db, order_ids)
+    order_summaries = _order_summaries_by_order_ids(db, order_ids)
     return OrderListResponse(
-        items=[_order_to_public(row, active_refunds.get(row.Order.id)) for row in rows],
+        items=[
+            _order_to_public(
+                row,
+                active_refunds.get(row.Order.id),
+                order_summaries.get(row.Order.id),
+            )
+            for row in rows
+        ],
         total=total,
         page=page,
         page_size=page_size,

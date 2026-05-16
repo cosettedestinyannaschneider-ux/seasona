@@ -98,7 +98,7 @@ import { getBuyerWallet, listBuyerOrders, listBuyerReviews } from '../api/buyer'
 import { useAuthStore } from '../stores/auth'
 import { useCartStore } from '../stores/cart'
 import { useDelayedBusy } from '../composables/useDelayedBusy'
-import { orderDisplayState, orderMatchesDisplayFilter, orderStatusClass, orderStatusText } from '../utils/orderDisplay'
+import { orderDisplayState, orderMatchesDisplayFilter, orderStatusClass, orderStatusText, orderTitle } from '../utils/orderDisplay'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -135,15 +135,6 @@ function orderDetailLink(order) {
     params: { id: order.id },
     query: { from: '/profile' },
   }
-}
-
-function orderTitle(order) {
-  const firstItem = order.items?.[0]
-  const title = firstItem?.product_name_snapshot || order.product_name_snapshot || order.order_no
-  if ((order.items?.length || 0) > 1 && title !== order.order_no) {
-    return `${title} 等 ${order.items.length} 件`
-  }
-  return title
 }
 
 async function logout() {

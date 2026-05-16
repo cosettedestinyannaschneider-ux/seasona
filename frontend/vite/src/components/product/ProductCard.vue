@@ -11,9 +11,15 @@
           {{ isOutOfStock ? '暂缺' : `库存 ${product.stock_total}` }}
         </span>
       </div>
-      <RouterLink class="product-card__title" :to="productDetailLink">
-        {{ product.name }}
-      </RouterLink>
+      <div class="product-card__title-row">
+        <RouterLink class="product-card__title" :to="productDetailLink">
+          {{ product.name }}
+        </RouterLink>
+        <span v-if="hasProductRating" class="rating-chip">
+          <b :class="ratingToneClass(product.average_rating)">{{ formatRating(product.average_rating) }}</b>
+          <span>★</span>
+        </span>
+      </div>
       <p>{{ product.description || '商家暂未填写详细描述。' }}</p>
       <div class="product-card__merchant">
         <Store :size="15" />
@@ -37,6 +43,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { Plus, Store } from 'lucide-vue-next'
 import { apiErrorMessage } from '../../api/http'
 import { useCartStore } from '../../stores/cart'
+import { formatRating, hasRating, ratingToneClass } from '../../utils/rating'
 
 const props = defineProps({
   product: {
@@ -56,6 +63,7 @@ const skuId = computed(() => {
   return props.product.default_sku_id || props.product.skus?.[0]?.sku_id || props.product.skus?.[0]?.id || null
 })
 const isOutOfStock = computed(() => Number(props.product.stock_total || 0) <= 0)
+const hasProductRating = computed(() => hasRating(props.product.average_rating) && Number(props.product.review_count || 0) > 0)
 const productDetailLink = computed(() => ({
   name: 'product-detail',
   params: { id: props.product.spu_id },

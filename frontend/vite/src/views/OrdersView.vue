@@ -36,7 +36,7 @@
       <div v-else-if="filteredOrders.length" class="order-list">
         <RouterLink v-for="order in filteredOrders" :key="order.id" class="order-card" :to="orderDetailLink(order)">
           <div class="order-card__top">
-            <strong>{{ order.order_no }}</strong>
+            <strong>{{ orderTitle(order) }}</strong>
             <span class="status-pill" :class="orderStatusClass(order)">{{ orderStatusText(order) }}</span>
           </div>
           <div class="order-card__content">
@@ -65,7 +65,7 @@ import { apiErrorMessage } from '../api/http'
 import { listBuyerOrders } from '../api/buyer'
 import { useAuthStore } from '../stores/auth'
 import { useDelayedBusy } from '../composables/useDelayedBusy'
-import { orderMatchesDisplayFilter, orderStatusClass, orderStatusText } from '../utils/orderDisplay'
+import { orderMatchesDisplayFilter, orderStatusClass, orderStatusText, orderTitle } from '../utils/orderDisplay'
 
 const route = useRoute()
 const router = useRouter()

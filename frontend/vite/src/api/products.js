@@ -47,6 +47,8 @@ export function normalizeProduct(item = {}) {
     min_price: toNumber(item.min_price ?? item.price ?? skus[0]?.price ?? 0),
     max_price: toNumber(item.max_price ?? item.min_price ?? item.price ?? skus[0]?.price ?? 0),
     stock_total: Number(item.stock_total ?? skus.reduce((sum, sku) => sum + sku.stock_available, 0)),
+    average_rating: item.average_rating == null ? null : Number(item.average_rating),
+    review_count: Number(item.review_count ?? 0),
     default_sku_id: item.default_sku_id ?? skus[0]?.sku_id ?? skus[0]?.id ?? null,
     default_sku_unit: item.default_sku_unit ?? skus[0]?.unit ?? null,
     skus,
@@ -125,6 +127,8 @@ export function normalizeReview(item = {}) {
     sku_spec_attrs_json: item.sku_spec_attrs_json || null,
     content: item.content || '',
     seller_reply: item.seller_reply || '',
+    created_at: item.created_at || '',
+    updated_at: item.updated_at || '',
   }
 }
 

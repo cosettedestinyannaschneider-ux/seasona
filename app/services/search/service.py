@@ -13,10 +13,11 @@ from sqlalchemy import case, cast, func, select
 from sqlalchemy.types import DateTime
 
 from app.core.config import get_settings
-from app.models.enums import MerchantAuditStatus, ProductStatus, UserStatus
+from app.models.enums import MerchantAuditStatus, ProductStatus, ReviewStatus, UserStatus
 from app.models.product import (
     ProductCategory,
     ProductImage,
+    ProductReview,
     ProductSku,
     ProductSpu,
     ProductTraceability,
@@ -117,12 +118,27 @@ def _image_count_subquery():
     )
 
 
+def _review_stats_subquery():
+    return (
+        select(
+            ProductReview.spu_id.label("spu_id"),
+            func.avg(ProductReview.rating).label("average_rating"),
+            func.count(ProductReview.id).label("review_count"),
+        )
+        .where(ProductReview.status == ReviewStatus.VISIBLE)
+        .group_by(ProductReview.spu_id)
+        .subquery()
+    )
+
+
 def _product_card_statement():
     sku_stats = _sku_stats_subquery()
     image_stats = _image_count_subquery()
+    review_stats = _review_stats_subquery()
     min_price_col = func.coalesce(sku_stats.c.min_price, Decimal("0.00"))
     max_price_col = func.coalesce(sku_stats.c.max_price, Decimal("0.00"))
     stock_total_col = func.coalesce(sku_stats.c.stock_total, 0)
+    review_count_col = func.coalesce(review_stats.c.review_count, 0)
 
     created_at_col = cast(ProductSpu.created_at, DateTime(timezone=True))
     updated_at_col = cast(ProductSpu.updated_at, DateTime(timezone=True))
@@ -137,12 +153,15 @@ def _product_card_statement():
             max_price_col.label("max_price"),
             stock_total_col.label("stock_total"),
             func.coalesce(image_stats.c.image_count, 0).label("image_count"),
+            review_stats.c.average_rating.label("average_rating"),
+            review_count_col.label("review_count"),
         )
         .join(MerchantProfile, ProductSpu.merchant_id == MerchantProfile.id)
         .join(UserAccount, MerchantProfile.user_id == UserAccount.id)
         .join(ProductCategory, ProductSpu.category_id == ProductCategory.id)
         .outerjoin(sku_stats, sku_stats.c.spu_id == ProductSpu.id)
         .outerjoin(image_stats, image_stats.c.spu_id == ProductSpu.id)
+        .outerjoin(review_stats, review_stats.c.spu_id == ProductSpu.id)
     )
     return statement, sku_stats, min_price_col, max_price_col, stock_total_col
 
@@ -521,6 +540,8 @@ def _rows_to_cards(
                 min_price=row.min_price,
                 max_price=row.max_price,
                 stock_total=int(row.stock_total or 0),
+                average_rating=float(row.average_rating) if row.average_rating is not None else None,
+                review_count=int(row.review_count or 0),
                 default_sku_id=default_sku.sku_id if default_sku else None,
                 default_sku_unit=default_sku.unit if default_sku else None,
                 skus=skus,
