@@ -90,6 +90,15 @@ if _MULTIPART_AVAILABLE:
         _ = current_user
         return await _store_image(file=file, settings=settings, subdir="avatars")
 
+    @router.post("/review-images", response_model=ImageUploadResponse, status_code=status.HTTP_201_CREATED)
+    async def upload_review_image(
+        file: UploadFile = File(...),
+        current_buyer: Any = Depends(require_roles(UserRole.BUYER)),
+        settings: Settings = Depends(get_settings),
+    ) -> ImageUploadResponse:
+        _ = current_buyer
+        return await _store_image(file=file, settings=settings, subdir="reviews")
+
     @router.post(
         "/merchant-audit-images",
         response_model=ImageUploadResponse,
@@ -123,6 +132,13 @@ else:
         current_seller: Any = Depends(require_roles(UserRole.SELLER)),
     ) -> dict[str, str]:
         _ensure_merchant_audit_upload_allowed(current_seller)
+        return {"detail": "Image upload requires python-multipart to be installed."}
+
+    @router.post("/review-images", status_code=status.HTTP_501_NOT_IMPLEMENTED)
+    def upload_review_image(
+        current_buyer: Any = Depends(require_roles(UserRole.BUYER)),
+    ) -> dict[str, str]:
+        _ = current_buyer
         return {"detail": "Image upload requires python-multipart to be installed."}
 
 

@@ -14,6 +14,7 @@ from app.models.enums import UserRole, UserStatus
 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/buyer/login")
+optional_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/buyer/login", auto_error=False)
 
 
 def get_current_token_payload(
@@ -95,6 +96,46 @@ def get_current_user(
             detail="User account is not active.",
         )
 
+    return user
+
+
+def get_optional_current_user(
+    token: str | None = Depends(optional_oauth2_scheme),
+    settings: Settings = Depends(get_settings),
+    token_store: TokenBlocklistStore = Depends(get_token_blocklist_store),
+    db: Any = Depends(get_db),
+) -> Any | None:
+    if not token or not settings.jwt_secret_key:
+        return None
+    try:
+        payload = decode_token(
+            token,
+            secret_key=settings.jwt_secret_key,
+            issuer=settings.jwt_issuer,
+            audience=settings.jwt_audience,
+        )
+    except TokenDecodeError:
+        return None
+    if payload.get("typ") != "access":
+        return None
+    jti = payload.get("jti")
+    if jti:
+        try:
+            if token_store.is_revoked(str(jti)):
+                return None
+        except Exception:
+            return None
+    user_id = payload.get("sub")
+    if user_id is None:
+        return None
+
+    from app.services.auth.service import get_user_by_id
+
+    user = get_user_by_id(db, int(user_id))
+    if user is None:
+        return None
+    if getattr(user.status, "value", user.status) != UserStatus.ACTIVE.value:
+        return None
     return user
 
 

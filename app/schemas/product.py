@@ -218,13 +218,12 @@ class ProductReviewPublic(BaseModel):
 
     id: int
     user_id: int
-    order_item_id: int
+    order_item_id: int | None = None
     spu_id: int
-    sku_id: int
-    rating: int
+    sku_id: int | None = None
+    rating: int | None = None
     content: str | None = None
     images_json: list[str] | None = None
-    seller_reply: str | None = None
     status: ReviewStatus
     created_at: datetime
     updated_at: datetime

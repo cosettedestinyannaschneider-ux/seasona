@@ -10,14 +10,28 @@
         <span class="section-kicker">Reviews</span>
         <h1>{{ product?.name || '商品评价' }}</h1>
       </div>
-      <small>{{ total }} 条真实评价</small>
+      <div class="buyer-heading__actions">
+        <small>{{ reviewTotalText }} 条真实评价</small>
+        <select v-model="sortBy" @change="reloadReviews">
+          <option value="likes">按点赞量</option>
+          <option value="newest">按时间</option>
+        </select>
+        <button
+          class="primary-button review-write-button"
+          type="button"
+          :class="{ disabled: !canWriteReview }"
+          @click="handleWriteReviewClick"
+        >
+          写评论
+        </button>
+      </div>
     </div>
 
     <p v-if="message" class="form-message form-message--error">{{ message }}</p>
     <div v-if="showLoading" class="loading-hint loading-hint--block">正在加载评价</div>
 
     <div v-else-if="reviews.length" class="review-wall">
-      <article v-for="review in reviews" :key="review.id" class="review-bubble review-bubble--large">
+      <article v-for="review in reviews" :key="review.id" class="review-bubble review-bubble--large" @click="openReviewDetail(review)">
         <div class="review-bubble__head">
           <div>
             <strong>{{ displayReviewName(review) }}</strong>
@@ -25,16 +39,32 @@
           </div>
           <span class="review-stars">{{ stars(review.rating) }}</span>
         </div>
-        <p>{{ review.content || '这位买家暂时没有写文字评价。' }}</p>
-        <button
-          class="review-reply-dot"
-          :class="{ active: Boolean(review.seller_reply) }"
-          type="button"
-          :aria-label="review.seller_reply ? '查看商家回复' : '商家暂未回复'"
-          @click="activeReview = review"
-        >
-          <MessageCircle :size="17" />
-        </button>
+        <p class="review-bubble__content">{{ review.content || '这位买家暂时没有写文字评价。' }}</p>
+        <div v-if="review.images_json?.length" class="review-bubble__images">
+          <img v-for="url in review.images_json.slice(0, 4)" :key="url" :src="mediaUrl(url)" alt="评价图片" />
+          <span v-if="review.images_json.length > 4">+{{ review.images_json.length - 4 }}</span>
+        </div>
+        <div class="review-bubble__actions">
+          <button
+            class="review-like-button"
+            :class="{ active: review.viewer_liked }"
+            type="button"
+            @click.stop="toggleReviewLike(review)"
+          >
+            <Heart :size="16" />
+            <span>{{ review.like_count }}</span>
+          </button>
+          <button
+            class="review-reply-dot"
+            :class="{ active: Boolean(review.has_seller_reply) }"
+            type="button"
+            :aria-label="review.has_seller_reply ? '查看评论回复' : '暂无回复'"
+            @click.stop="openReviewDetail(review)"
+          >
+            <MessageCircle :size="17" />
+            <span>{{ review.comment_count }}</span>
+          </button>
+        </div>
       </article>
     </div>
     <div v-else class="empty-state">这个商品暂时还没有评价。</div>
@@ -45,31 +75,16 @@
       <button type="button" :disabled="page >= totalPages" @click="changePage(1)">下一页</button>
     </div>
 
-    <div v-if="activeReview" class="review-detail-overlay" @click.self="activeReview = null">
-      <section class="review-detail-panel">
-        <div class="review-bubble__head">
-          <div>
-            <strong>{{ displayReviewName(activeReview) }}</strong>
-            <small>{{ reviewMeta(activeReview) }}</small>
-          </div>
-          <span class="review-stars">{{ stars(activeReview.rating) }}</span>
-        </div>
-        <p class="review-detail-panel__content">{{ activeReview.content || '这位买家暂时没有写文字评价。' }}</p>
-        <div class="review-seller-reply" :class="{ active: Boolean(activeReview.seller_reply) }">
-          <strong>商家回复</strong>
-          <p>{{ activeReview.seller_reply || '商家暂未回复。' }}</p>
-        </div>
-      </section>
-    </div>
   </section>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, MessageCircle } from 'lucide-vue-next'
-import { apiErrorMessage } from '../api/http'
-import { getProductDetail, listProductReviews } from '../api/products'
+import { ArrowLeft, Heart, MessageCircle } from 'lucide-vue-next'
+import { apiErrorMessage, mediaUrl } from '../api/http'
+import { getProductDetail, getProductReviewEligibility, likeReview, listProductReviews, unlikeReview } from '../api/products'
+import { useAuthStore } from '../stores/auth'
 import { useDelayedBusy } from '../composables/useDelayedBusy'
 import { formatSkuDisplay } from '../utils/sku'
 import { formatReviewTime } from '../utils/date'
@@ -78,16 +93,25 @@ const PAGE_SIZE = 12
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 const product = ref(null)
 const reviews = ref([])
 const total = ref(0)
 const page = ref(1)
 const loading = ref(false)
 const message = ref('')
-const activeReview = ref(null)
+const sortBy = ref('likes')
+const reviewEligibility = ref(null)
 const showLoading = useDelayedBusy(loading)
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
+const hasReviewableOrderItem = computed(() =>
+  Boolean(reviewEligibility.value?.reviewable_items?.some((item) => !item.already_reviewed)),
+)
+const canWriteReview = computed(() =>
+  Boolean(reviewEligibility.value?.can_write_free_review || hasReviewableOrderItem.value),
+)
+const reviewTotalText = computed(() => (total.value > 9999 ? '9999+' : total.value))
 
 function goBack() {
   router.replace({
@@ -111,11 +135,12 @@ function stars(rating) {
 }
 
 function displayReviewName(review) {
-  const name = review?.buyer_username || '买家'
+  const name = review?.buyer_nickname || review?.buyer_username || '买家'
   return name.length > 12 ? `${name.slice(0, 12)}*` : name
 }
 
 function reviewSku(review) {
+  if (!review?.sku_id) return ''
   return formatSkuDisplay(review)
 }
 
@@ -127,7 +152,7 @@ async function loadReviews() {
   loading.value = true
   message.value = ''
   try {
-    const result = await listProductReviews(route.params.id, page.value, PAGE_SIZE)
+    const result = await listProductReviews(route.params.id, page.value, PAGE_SIZE, sortBy.value)
     reviews.value = result.items
     total.value = result.total
   } catch (error) {
@@ -141,14 +166,65 @@ function changePage(delta) {
   const next = page.value + delta
   if (next < 1 || next > totalPages.value) return
   page.value = next
-  activeReview.value = null
   loadReviews()
+}
+
+function reloadReviews() {
+  page.value = 1
+  loadReviews()
+}
+
+function openReviewDetail(review) {
+  router.push({
+    name: 'review-detail',
+    params: { id: review.id },
+    query: { from: route.fullPath },
+  })
+}
+
+function handleWriteReviewClick() {
+  if (!auth.isAuthenticated) {
+    message.value = '请先登录买家账号后再写评论'
+    return
+  }
+  if (!canWriteReview.value) {
+    message.value = reviewEligibility.value?.has_completed_purchase
+      ? '你已经发表过该商品的商品评论'
+      : '购买并完成订单后才能评价该商品'
+    return
+  }
+  router.push({
+    name: 'review-write',
+    params: { id: route.params.id },
+    query: { from: route.fullPath },
+  })
+}
+
+async function toggleReviewLike(review) {
+  if (!auth.isAuthenticated) {
+    router.push('/auth')
+    return
+  }
+  try {
+    const next = review.viewer_liked ? await unlikeReview(review.id) : await likeReview(review.id)
+    const index = reviews.value.findIndex((item) => item.id === review.id)
+    if (index >= 0) reviews.value[index] = { ...reviews.value[index], ...next }
+  } catch (error) {
+    message.value = apiErrorMessage(error, '点赞失败')
+  }
 }
 
 onMounted(async () => {
   loading.value = true
   try {
     product.value = await getProductDetail(route.params.id)
+    if (auth.isAuthenticated && auth.role === 'buyer') {
+      try {
+        reviewEligibility.value = await getProductReviewEligibility(route.params.id)
+      } catch {
+        reviewEligibility.value = null
+      }
+    }
   } catch {
     product.value = null
   } finally {

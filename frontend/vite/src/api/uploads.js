@@ -29,6 +29,16 @@ export async function uploadProductImage(file) {
   return data
 }
 
+export async function uploadReviewImage(file) {
+  assertUploadFile(file)
+  const formData = new FormData()
+  formData.append('file', file)
+  const { data } = await http.post('/api/v1/uploads/review-images', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return data
+}
+
 export async function uploadMerchantAuditImage(file) {
   assertUploadFile(file)
   const formData = new FormData()

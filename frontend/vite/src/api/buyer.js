@@ -181,7 +181,13 @@ export async function listBuyerReviews(page = 1) {
   return { items: rawItems.map(normalizeReview), total: data.total ?? rawItems.length }
 }
 
+export async function listBuyerReviewDrafts(page = 1) {
+  const { data } = await http.get('/api/v1/orders/reviews/drafts', { params: { page, page_size: 30 } })
+  const rawItems = data.items || []
+  return { items: rawItems.map(normalizeReview), total: data.total ?? rawItems.length }
+}
+
 export async function createBuyerReview(payload) {
   const { data } = await http.post('/api/v1/orders/reviews', payload)
-  return data
+  return normalizeReview(data)
 }

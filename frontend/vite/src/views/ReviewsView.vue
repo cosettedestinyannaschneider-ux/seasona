@@ -42,7 +42,12 @@
           </div>
 
           <div class="review-wall review-wall--single">
-            <article v-for="review in activeGroup.reviews" :key="review.id" class="review-bubble review-bubble--large">
+            <article
+              v-for="review in activeGroup.reviews"
+              :key="review.id"
+              class="review-bubble review-bubble--large"
+              @click="openReviewDetail(review)"
+            >
               <div class="review-bubble__head">
                 <div>
                   <strong>{{ stars(review.rating) }}</strong>
@@ -53,10 +58,10 @@
               <p>{{ review.content || '你暂时没有写文字评价。' }}</p>
               <button
                 class="review-reply-dot"
-                :class="{ active: Boolean(review.seller_reply) }"
+                :class="{ active: Boolean(review.has_seller_reply) }"
                 type="button"
-                :aria-label="review.seller_reply ? '查看商家回复' : '商家暂未回复'"
-                @click="openReviewDetail(review)"
+                :aria-label="review.has_seller_reply ? '查看评论回复' : '暂无回复'"
+                @click.stop="openReviewDetail(review)"
               >
                 <MessageCircle :size="17" />
               </button>
@@ -65,7 +70,26 @@
         </section>
       </template>
 
-      <div v-else-if="reviewGroups.length" class="buyer-review-products">
+      <div v-else-if="reviewDrafts.length || reviewGroups.length" class="buyer-review-products">
+        <article v-for="draft in reviewDrafts" :key="`draft-${draft.id}`" class="buyer-review-product-row buyer-review-product-row--draft">
+          <img
+            v-if="draft.product_cover_image_url"
+            :src="mediaUrl(draft.product_cover_image_url)"
+            :alt="draft.product_name"
+          />
+          <div v-else class="seller-product-row__blank">草</div>
+          <div>
+            <strong>{{ draft.product_name || '评价草稿' }}</strong>
+            <span>{{ draft.content || '草稿暂未填写正文' }}</span>
+            <small>草稿 · {{ formatReviewTime(draft.updated_at) }}</small>
+          </div>
+          <RouterLink
+            class="seller-ghost-button"
+            :to="{ name: 'review-write', params: { id: draft.spu_id }, query: draft.order_item_id ? { order_item_id: draft.order_item_id, from: '/reviews' } : { from: '/reviews' } }"
+          >
+            继续编辑
+          </RouterLink>
+        </article>
         <article v-for="group in reviewGroups" :key="group.spu_id" class="buyer-review-product-row">
           <img
             v-if="group.product_cover_image_url"
@@ -86,30 +110,15 @@
       <div v-else class="empty-state">你还没有发表过评价，完成订单后可以在订单详情中评价商品。</div>
     </template>
 
-    <div v-if="activeReview" class="review-detail-overlay" @click.self="activeReview = null">
-      <section class="review-detail-panel">
-        <div class="review-bubble__head">
-          <div>
-            <strong>{{ activeReview.product_name || '商品评价' }}</strong>
-            <small>{{ reviewMeta(activeReview) }}</small>
-          </div>
-          <span class="review-stars">{{ stars(activeReview.rating) }}</span>
-        </div>
-        <p class="review-detail-panel__content">{{ activeReview.content || '你暂时没有写文字评价。' }}</p>
-        <div class="review-seller-reply" :class="{ active: Boolean(activeReview.seller_reply) }">
-          <strong>商家回复</strong>
-          <p>{{ activeReview.seller_reply || '商家暂未回复。' }}</p>
-        </div>
-      </section>
-    </div>
   </section>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { MessageCircle } from 'lucide-vue-next'
 import { apiErrorMessage, mediaUrl } from '../api/http'
-import { listBuyerReviews } from '../api/buyer'
+import { listBuyerReviewDrafts, listBuyerReviews } from '../api/buyer'
 import { useAuthStore } from '../stores/auth'
 import { useDelayedBusy } from '../composables/useDelayedBusy'
 import { formatReviewTime } from '../utils/date'
@@ -118,9 +127,10 @@ import { formatSkuDisplay } from '../utils/sku'
 const SEEN_REPLY_KEY = 'seasona_seen_review_replies'
 
 const auth = useAuthStore()
+const router = useRouter()
 const reviews = ref([])
+const reviewDrafts = ref([])
 const activeSpuId = ref(null)
-const activeReview = ref(null)
 const seenReplyKeys = ref(new Set())
 const message = ref('')
 const loading = ref(false)
@@ -166,11 +176,11 @@ function writeSeenReplies() {
 }
 
 function replySeenKey(review) {
-  return `${review?.id || 0}:${review?.seller_reply || ''}`
+  return `${review?.id || 0}:${review?.updated_at || ''}:${review?.has_seller_reply ? 'seller' : ''}`
 }
 
 function hasUnreadReply(review) {
-  return Boolean(review?.seller_reply) && !seenReplyKeys.value.has(replySeenKey(review))
+  return Boolean(review?.has_seller_reply) && !seenReplyKeys.value.has(replySeenKey(review))
 }
 
 function stars(rating) {
@@ -179,6 +189,7 @@ function stars(rating) {
 }
 
 function reviewSku(review) {
+  if (!review?.sku_id) return '商品评论'
   return formatSkuDisplay(review)
 }
 
@@ -200,17 +211,15 @@ function groupSummary(group) {
 
 function openGroup(group) {
   activeSpuId.value = group.spu_id
-  activeReview.value = null
 }
 
 function closeGroup() {
   activeSpuId.value = null
-  activeReview.value = null
 }
 
 function openReviewDetail(review) {
-  activeReview.value = review
-  if (review.seller_reply) {
+  router.push({ name: 'review-detail', params: { id: review.id }, query: { from: '/reviews' } })
+  if (review.has_seller_reply) {
     seenReplyKeys.value.add(replySeenKey(review))
     writeSeenReplies()
   }
@@ -221,8 +230,9 @@ onMounted(async () => {
   readSeenReplies()
   loading.value = true
   try {
-    const result = await listBuyerReviews()
+    const [result, draftResult] = await Promise.all([listBuyerReviews(), listBuyerReviewDrafts()])
     reviews.value = result.items
+    reviewDrafts.value = draftResult.items
   } catch (error) {
     message.value = apiErrorMessage(error, '评价读取失败，请确认当前账号是买家')
   } finally {

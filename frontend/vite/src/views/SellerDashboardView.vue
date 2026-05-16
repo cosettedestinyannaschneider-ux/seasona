@@ -1924,6 +1924,7 @@ function displayBuyerName(value) {
 }
 
 function reviewSku(review) {
+  if (!review?.sku_id) return '商品评论'
   return formatSkuDisplay(review, `SKU ${review?.sku_id || ''}`)
 }
 

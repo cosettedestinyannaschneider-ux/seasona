@@ -9,7 +9,9 @@
 - `product_sku.stock_locked`：订单创建后、付款/取消/完成前的库存锁定量。
 - `product_traceability.trace_code`：面向用户展示的溯源码。
 - `product_category.parent_id`：分类树结构。
-- `product_review`：评论独立成表，并关联订单明细与 SKU。
+- `product_review`：SPU 级主评论表；订单明细与 SKU 是可选来源信息。
+- `product_review_comment`：评论下的回复表，商家回复也作为一条特殊回复保存。
+- `product_review_like`：评论点赞表，用用户维度去重。
 
 ## 已删除或不采用的设计
 

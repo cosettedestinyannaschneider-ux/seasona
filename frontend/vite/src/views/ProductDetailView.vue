@@ -145,15 +145,32 @@
       <div class="section-heading">
         <div>
           <span class="section-kicker">Reviews</span>
-          <h2>用户评价</h2>
+          <h2>
+            用户评价
+            <span v-if="hasProductRating" class="rating-chip rating-chip--inline">
+              <b :class="ratingToneClass(product.average_rating)">{{ formatRating(product.average_rating) }}</b>
+              <span>★</span>
+            </span>
+            <span v-else class="rating-chip rating-chip--inline rating-chip--empty">暂无评价</span>
+          </h2>
         </div>
-        <RouterLink v-if="reviewTotal > 0" class="secondary-button" :to="reviewsLink">
-          查看所有评论
-        </RouterLink>
+        <div class="section-heading__actions">
+          <button
+            class="primary-button review-write-button"
+            :class="{ disabled: !canWriteReview }"
+            type="button"
+            @click="handleWriteReviewClick"
+          >
+            写评论
+          </button>
+          <RouterLink v-if="reviewTotal > 0" class="secondary-button review-total-button" :to="reviewsLink">
+            查看所有评论（共{{ reviewTotalLabel }}条）
+          </RouterLink>
+        </div>
       </div>
       <div v-if="reviewsShowLoading" class="loading-hint">正在加载评价</div>
       <div v-else-if="previewReviews.length" class="review-preview review-preview--bubbles">
-        <article v-for="review in previewReviews" :key="review.id" class="review-bubble">
+        <article v-for="review in previewReviews" :key="review.id" class="review-bubble" @click="openReviewDetail(review)">
           <div class="review-bubble__head">
             <div>
               <strong>{{ displayReviewName(review) }}</strong>
@@ -161,38 +178,37 @@
             </div>
             <span class="review-stars">{{ stars(review.rating) }}</span>
           </div>
-          <p>{{ review.content || '这位买家暂时没有写文字评价。' }}</p>
-          <button
-            class="review-reply-dot"
-            :class="{ active: Boolean(review.seller_reply) }"
-            type="button"
-            :aria-label="review.seller_reply ? '查看商家回复' : '商家暂未回复'"
-            @click="openReviewDetail(review)"
-          >
-            <MessageCircle :size="17" />
-          </button>
+          <p class="review-bubble__content">{{ review.content || '这位买家暂时没有写文字评价。' }}</p>
+          <div v-if="review.images_json?.length" class="review-bubble__images">
+            <img v-for="url in review.images_json.slice(0, 4)" :key="url" :src="mediaUrl(url)" alt="评价图片" />
+            <span v-if="review.images_json.length > 4">+{{ review.images_json.length - 4 }}</span>
+          </div>
+          <div class="review-bubble__actions">
+            <button
+              class="review-like-button"
+              :class="{ active: review.viewer_liked }"
+              type="button"
+              @click.stop="toggleReviewLike(review)"
+            >
+              <Heart :size="16" />
+              <span>{{ review.like_count }}</span>
+            </button>
+            <button
+              class="review-reply-dot"
+              :class="{ active: Boolean(review.has_seller_reply) }"
+              type="button"
+              :aria-label="review.has_seller_reply ? '查看评论回复' : '暂无回复'"
+              @click.stop="openReviewDetail(review)"
+            >
+              <MessageCircle :size="17" />
+              <span>{{ review.comment_count }}</span>
+            </button>
+          </div>
         </article>
       </div>
       <div v-else class="empty-state">还没有买家评价，完成订单后的真实评价会展示在这里。</div>
       <div v-if="reviewMessage" class="soft-toast">{{ reviewMessage }}</div>
     </section>
-
-    <div v-if="activeReview" class="review-detail-overlay" @click.self="activeReview = null">
-      <section class="review-detail-panel">
-        <div class="review-bubble__head">
-          <div>
-            <strong>{{ displayReviewName(activeReview) }}</strong>
-            <small>{{ reviewMeta(activeReview) }}</small>
-          </div>
-          <span class="review-stars">{{ stars(activeReview.rating) }}</span>
-        </div>
-        <p class="review-detail-panel__content">{{ activeReview.content || '这位买家暂时没有写文字评价。' }}</p>
-        <div class="review-seller-reply" :class="{ active: Boolean(activeReview.seller_reply) }">
-          <strong>商家回复</strong>
-          <p>{{ activeReview.seller_reply || '商家暂未回复。' }}</p>
-        </div>
-      </section>
-    </div>
 
     <div v-if="skuPickerVisible" class="sku-picker-wrap" aria-live="polite">
       <section class="sku-picker">
@@ -247,10 +263,11 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, ChevronLeft, ChevronRight, MessageCircle, ShoppingBag, ShoppingCart } from 'lucide-vue-next'
-import { getProductDetail, listProductReviews } from '../api/products'
+import { ArrowLeft, ChevronLeft, ChevronRight, Heart, MessageCircle, ShoppingBag, ShoppingCart } from 'lucide-vue-next'
+import { getProductDetail, getProductReviewEligibility, likeReview, listProductReviews, unlikeReview } from '../api/products'
 import { apiErrorMessage, mediaUrl } from '../api/http'
 import { useCartStore } from '../stores/cart'
+import { useAuthStore } from '../stores/auth'
 import { useDelayedBusy } from '../composables/useDelayedBusy'
 import { formatSkuDisplay, formatSpecAttrs } from '../utils/sku'
 import { formatRating, hasRating, ratingToneClass } from '../utils/rating'
@@ -261,6 +278,7 @@ const INLINE_SKU_LIMIT = 4
 const route = useRoute()
 const router = useRouter()
 const cart = useCartStore()
+const auth = useAuthStore()
 const product = ref(null)
 const selectedSkuId = ref(null)
 const pickerSkuId = ref(null)
@@ -270,7 +288,7 @@ const reviews = ref([])
 const reviewTotal = ref(0)
 const reviewsLoading = ref(false)
 const reviewMessage = ref('')
-const activeReview = ref(null)
+const reviewEligibility = ref(null)
 const busy = ref(false)
 const loading = ref(false)
 const message = ref('')
@@ -283,7 +301,7 @@ const pickerSelectedSku = computed(() => product.value?.skus.find((sku) => sku.i
 const hasAvailableSku = computed(() => product.value?.skus.some((sku) => !isSoldOutSku(sku)) || false)
 const hasProductRating = computed(() => hasRating(product.value?.average_rating) && Number(product.value?.review_count || 0) > 0)
 const inlineSkus = computed(() => product.value?.skus.slice(0, INLINE_SKU_LIMIT) || [])
-const previewReviews = computed(() => reviews.value.slice(0, 4))
+const previewReviews = computed(() => reviews.value.slice(0, 6))
 const selectedSkuLabel = computed(() => (selectedSku.value ? formatSkuDisplay(selectedSku.value) : ''))
 const merchantInitial = computed(() => (product.value?.merchant_shop_name || '店').slice(0, 1))
 const merchantLink = computed(() => ({ name: 'merchant-store', params: { id: product.value?.merchant_id } }))
@@ -303,6 +321,18 @@ const reviewsLink = computed(() => ({
   params: { id: product.value?.spu_id },
   query: { from: safeBackTarget() },
 }))
+const writeReviewLink = computed(() => ({
+  name: 'review-write',
+  params: { id: product.value?.spu_id },
+  query: { from: route.fullPath },
+}))
+const hasReviewableOrderItem = computed(() =>
+  Boolean(reviewEligibility.value?.reviewable_items?.some((item) => !item.already_reviewed)),
+)
+const canWriteReview = computed(() =>
+  Boolean(reviewEligibility.value?.can_write_free_review || hasReviewableOrderItem.value),
+)
+const reviewTotalLabel = computed(() => (reviewTotal.value > 9999 ? '9999+' : String(reviewTotal.value).padStart(1, '0')))
 const productImages = computed(() => {
   const item = product.value
   if (!item) return []
@@ -360,6 +390,7 @@ function formatTraceDate(value) {
 }
 
 function reviewSku(review) {
+  if (!review?.sku_id) return ''
   return formatSkuDisplay(review)
 }
 
@@ -373,12 +404,44 @@ function stars(rating) {
 }
 
 function displayReviewName(review) {
-  const name = review?.buyer_username || '买家'
+  const name = review?.buyer_nickname || review?.buyer_username || '买家'
   return name.length > 10 ? `${name.slice(0, 10)}*` : name
 }
 
 function openReviewDetail(review) {
-  activeReview.value = review
+  router.push({
+    name: 'review-detail',
+    params: { id: review.id },
+    query: { from: route.fullPath },
+  })
+}
+
+function handleWriteReviewClick() {
+  if (!auth.isAuthenticated) {
+    reviewMessage.value = '请先登录买家账号后再写评论'
+    return
+  }
+  if (!canWriteReview.value) {
+    reviewMessage.value = reviewEligibility.value?.has_completed_purchase
+      ? '你已经发表过该商品的商品评论'
+      : '购买并完成订单后才能评价该商品'
+    return
+  }
+  router.push(writeReviewLink.value)
+}
+
+async function toggleReviewLike(review) {
+  if (!auth.isAuthenticated) {
+    router.push('/auth')
+    return
+  }
+  try {
+    const next = review.viewer_liked ? await unlikeReview(review.id) : await likeReview(review.id)
+    const index = reviews.value.findIndex((item) => item.id === review.id)
+    if (index >= 0) reviews.value[index] = { ...reviews.value[index], ...next }
+  } catch (error) {
+    reviewMessage.value = apiErrorMessage(error, '点赞失败')
+  }
 }
 
 function selectInlineSku(skuId) {
@@ -513,9 +576,16 @@ onMounted(async () => {
     currentImageIndex.value = 0
     reviewsLoading.value = true
     try {
-      const reviewResult = await listProductReviews(product.value.spu_id, 1, 4)
+      const reviewResult = await listProductReviews(product.value.spu_id, 1, 6, 'likes')
       reviews.value = reviewResult.items
       reviewTotal.value = reviewResult.total
+      if (auth.isAuthenticated && auth.role === 'buyer') {
+        try {
+          reviewEligibility.value = await getProductReviewEligibility(product.value.spu_id)
+        } catch {
+          reviewEligibility.value = null
+        }
+      }
     } catch (reviewError) {
       reviewMessage.value = apiErrorMessage(reviewError, '评价暂时读取失败')
     } finally {

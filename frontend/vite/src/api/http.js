@@ -150,6 +150,16 @@ function translateApiMessage(text) {
   if (text.includes('Only shipped orders can be completed')) return '只有已发货订单可以确认收货'
   if (text.includes('Only shipped or completed orders can request refund')) return '只有已发货或已完成订单可以申请退款'
   if (text.includes('Only completed orders can be reviewed')) return '只有已完成订单可以评价'
+  if (text.includes('Only buyers who completed orders can review')) return '购买并完成订单后才能评价该商品'
+  if (text.includes('Product already reviewed')) return '你已经评价过该商品'
+  if (text.includes('Order item already reviewed')) return '这件订单商品已经评价过'
+  if (text.includes('Product id is required')) return '缺少商品信息，请返回商品页重试'
+  if (text.includes('Product not found')) return '商品不存在或已下架'
+  if (text.includes('Order item not found')) return '订单商品不存在'
+  if (text.includes('Order item does not belong to product')) return '订单商品与当前商品不一致'
+  if (text.includes('Review not found')) return '评价不存在或已被删除'
+  if (text.includes('Parent comment not found')) return '要回复的评论不存在或已被删除'
+  if (text.includes('Comment not found')) return '评论不存在或已被删除'
   if (text.includes('Only rejected or overdue pending refunds can be disputed')) {
     return '只有卖家拒绝或超时未处理的退款才能发起争议'
   }

@@ -14,7 +14,7 @@ from app.schemas.order import (
     OrderDetail,
     OrderListResponse,
 )
-from app.schemas.review import ReviewCreate, ReviewListResponse, ReviewPublic
+from app.schemas.review import ReviewCreate, ReviewDraftListResponse, ReviewListResponse, ReviewPublic
 from app.schemas.wallet import WalletLedgerListResponse, WalletPublic, WalletRechargeRequest
 
 
@@ -232,6 +232,18 @@ def list_my_reviews(
     return list_reviews(db, user=current_buyer, page=page, page_size=page_size)
 
 
+@router.get("/reviews/drafts", response_model=ReviewDraftListResponse)
+def list_my_review_drafts(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    current_buyer: Any = Depends(require_roles(UserRole.BUYER)),
+    db: Any = Depends(get_db),
+) -> ReviewDraftListResponse:
+    from app.services.commerce.service import list_review_drafts
+
+    return list_review_drafts(db, current_buyer, page=page, page_size=page_size)
+
+
 @router.post("/reviews", response_model=ReviewPublic, status_code=status.HTTP_201_CREATED)
 def create_review(
     payload: ReviewCreate,
@@ -240,6 +252,8 @@ def create_review(
 ) -> ReviewPublic:
     from app.services.commerce.service import create_product_review
 
+    if payload.order_item_id is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Order item id is required.")
     try:
         review = create_product_review(
             db,

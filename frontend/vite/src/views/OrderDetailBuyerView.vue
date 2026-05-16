@@ -47,28 +47,11 @@
               v-if="order.status === 'COMPLETED' && !item.review"
               class="review-shortcut"
               type="button"
-              @click="openReview(item.id)"
+              @click="openReview(item)"
             >
               写评价
             </button>
           </article>
-        </div>
-
-        <div v-if="reviewOpen" class="order-block">
-          <h2>发表评价</h2>
-          <div class="rating-row">
-            <button
-              v-for="score in 5"
-              :key="score"
-              type="button"
-              :class="{ active: reviewForm.rating >= score }"
-              @click="reviewForm.rating = score"
-            >
-              ★
-            </button>
-          </div>
-          <textarea v-model.trim="reviewForm.content" rows="3" placeholder="写下商品体验"></textarea>
-          <button class="primary-button" type="button" @click="submitReview">提交评价</button>
         </div>
 
         <div v-if="refundOpen" class="order-block">
@@ -111,12 +94,11 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   cancelBuyerOrder,
   completeBuyerOrder,
-  createBuyerReview,
   createRefundApplication,
   createRefundDispute,
   getBuyerOrder,
@@ -135,14 +117,8 @@ const router = useRouter()
 const order = ref(null)
 const refundOpen = ref(false)
 const disputeOpen = ref(false)
-const reviewOpen = ref(false)
 const refundReason = ref('')
 const disputeReason = ref('')
-const reviewForm = reactive({
-  order_item_id: null,
-  rating: 5,
-  content: '',
-})
 const message = ref('')
 const messageType = ref('info')
 const loading = ref(false)
@@ -296,26 +272,19 @@ async function applyDispute() {
   }
 }
 
-function openReview(itemId) {
-  reviewForm.order_item_id = itemId
-  reviewForm.rating = 5
-  reviewForm.content = ''
-  reviewOpen.value = true
-}
-
-async function submitReview() {
-  try {
-    await createBuyerReview({
-      order_item_id: reviewForm.order_item_id,
-      rating: reviewForm.rating,
-      content: reviewForm.content || undefined,
-    })
-    reviewOpen.value = false
-    await refreshOrder()
-    setMessage('评价已发布')
-  } catch (error) {
-    setMessage(apiErrorMessage(error, '评价提交失败'), 'error')
-  }
+function openReview(item) {
+  router.push({
+    name: 'review-write',
+    params: { id: item.spu_id },
+    query: {
+      order_item_id: item.id,
+      from: route.fullPath,
+      product_name: item.product_name_snapshot || '',
+      cover_image_url: item.cover_image_url_snapshot || '',
+      sku_spec_name: item.spec_name_snapshot || '',
+      sku_unit: item.sku_unit || '',
+    },
+  })
 }
 
 onMounted(async () => {
@@ -324,8 +293,10 @@ onMounted(async () => {
     await refreshOrder()
     const reviewQuery = String(route.query.review || '')
     if (reviewQuery && order.value.status === 'COMPLETED') {
-      const itemId = reviewQuery === 'first' ? order.value.items.find((item) => !item.review)?.id : Number(reviewQuery)
-      if (itemId) openReview(itemId)
+      const item = reviewQuery === 'first'
+        ? order.value.items.find((entry) => !entry.review)
+        : order.value.items.find((entry) => entry.id === Number(reviewQuery))
+      if (item) openReview(item)
     }
   } catch (error) {
     setMessage(apiErrorMessage(error, '订单不存在或无权查看'), 'error')

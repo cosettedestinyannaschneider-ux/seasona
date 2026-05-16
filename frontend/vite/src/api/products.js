@@ -115,26 +115,60 @@ export function normalizeReview(item = {}) {
     ...item,
     id: Number(item.id),
     user_id: Number(item.user_id),
-    order_item_id: Number(item.order_item_id),
+    order_item_id: item.order_item_id == null ? null : Number(item.order_item_id),
     spu_id: Number(item.spu_id),
-    sku_id: Number(item.sku_id),
-    rating: Number(item.rating || 0),
+    sku_id: item.sku_id == null ? null : Number(item.sku_id),
+    rating: item.rating == null ? null : Number(item.rating || 0),
     buyer_username: item.buyer_username || '',
+    buyer_nickname: item.buyer_nickname || '',
+    buyer_avatar_url: item.buyer_avatar_url || '',
     product_name: item.product_name || '',
     product_cover_image_url: item.product_cover_image_url || '',
     sku_spec_name: item.sku_spec_name || '',
     sku_unit: item.sku_unit || '',
     sku_spec_attrs_json: item.sku_spec_attrs_json || null,
     content: item.content || '',
+    images_json: item.images_json || [],
     seller_reply: item.seller_reply || '',
+    like_count: Number(item.like_count ?? 0),
+    comment_count: Number(item.comment_count ?? 0),
+    has_seller_reply: Boolean(item.has_seller_reply),
+    viewer_liked: Boolean(item.viewer_liked),
+    can_delete: Boolean(item.can_delete),
     created_at: item.created_at || '',
     updated_at: item.updated_at || '',
   }
 }
 
-export async function listProductReviews(spuId, page = 1, pageSize = 20) {
+export function normalizeReviewComment(item = {}) {
+  return {
+    ...item,
+    id: Number(item.id),
+    review_id: Number(item.review_id),
+    parent_id: item.parent_id == null ? null : Number(item.parent_id),
+    user_id: item.user_id == null ? null : Number(item.user_id),
+    author_role: item.author_role || 'buyer',
+    content: item.content || '',
+    reply_to_name: item.reply_to_name || '',
+    author_username: item.author_username || '',
+    author_nickname: item.author_nickname || '',
+    author_avatar_url: item.author_avatar_url || '',
+    can_delete: Boolean(item.can_delete),
+    created_at: item.created_at || '',
+    updated_at: item.updated_at || '',
+  }
+}
+
+export function normalizeReviewDetail(item = {}) {
+  return {
+    ...normalizeReview(item),
+    comments: (item.comments || []).map(normalizeReviewComment),
+  }
+}
+
+export async function listProductReviews(spuId, page = 1, pageSize = 20, sortBy = 'likes') {
   const { data } = await http.get(`/api/v1/products/${spuId}/reviews`, {
-    params: { page, page_size: pageSize },
+    params: { page, page_size: pageSize, sort_by: sortBy },
   })
   const rawItems = data.items || []
   return {
@@ -143,4 +177,58 @@ export async function listProductReviews(spuId, page = 1, pageSize = 20) {
     page: data.page ?? page,
     page_size: data.page_size ?? pageSize,
   }
+}
+
+export async function getProductReviewEligibility(spuId) {
+  const { data } = await http.get(`/api/v1/products/${spuId}/review-eligibility`)
+  return {
+    ...data,
+    reviewable_items: data.reviewable_items || [],
+  }
+}
+
+export async function createProductReview(spuId, payload) {
+  const { data } = await http.post(`/api/v1/products/${spuId}/reviews`, payload)
+  return normalizeReview(data)
+}
+
+export async function getProductReviewDraft(spuId, orderItemId = null) {
+  const params = {}
+  if (orderItemId) params.order_item_id = orderItemId
+  const { data } = await http.get(`/api/v1/products/${spuId}/review-draft`, { params })
+  return data ? normalizeReview(data) : null
+}
+
+export async function saveProductReviewDraft(spuId, payload) {
+  const { data } = await http.put(`/api/v1/products/${spuId}/review-draft`, payload)
+  return normalizeReview(data)
+}
+
+export async function getReviewDetail(reviewId) {
+  const { data } = await http.get(`/api/v1/reviews/${reviewId}`)
+  return normalizeReviewDetail(data)
+}
+
+export async function likeReview(reviewId) {
+  const { data } = await http.post(`/api/v1/reviews/${reviewId}/like`)
+  return normalizeReview(data)
+}
+
+export async function unlikeReview(reviewId) {
+  const { data } = await http.delete(`/api/v1/reviews/${reviewId}/like`)
+  return normalizeReview(data)
+}
+
+export async function createReviewComment(reviewId, payload) {
+  const { data } = await http.post(`/api/v1/reviews/${reviewId}/comments`, payload)
+  return normalizeReviewDetail(data)
+}
+
+export async function deleteReview(reviewId) {
+  await http.delete(`/api/v1/reviews/${reviewId}`)
+}
+
+export async function deleteReviewComment(commentId) {
+  const { data } = await http.delete(`/api/v1/reviews/comments/${commentId}`)
+  return normalizeReviewDetail(data)
 }

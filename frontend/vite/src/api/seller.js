@@ -1,6 +1,6 @@
 import { http } from './http'
 import { normalizeOrder, normalizeWallet, normalizeWalletLedger } from './buyer'
-import { normalizeProduct } from './products'
+import { normalizeProduct, normalizeReview } from './products'
 
 function normalizeMoney(value) {
   return Number(value ?? 0)
@@ -168,7 +168,7 @@ export async function rejectSellerRefund(refundId, sellerNote = '') {
 
 export async function listSellerReviews(params = {}) {
   const { data } = await http.get('/api/v1/seller/reviews', { params })
-  return normalizeListResponse(data)
+  return normalizeListResponse(data, normalizeReview)
 }
 
 export async function listSellerReviewProducts(params = {}) {
@@ -188,10 +188,10 @@ export async function replySellerReview(reviewId, sellerReply) {
   const { data } = await http.post(`/api/v1/seller/reviews/${reviewId}/reply`, {
     seller_reply: sellerReply,
   })
-  return data
+  return normalizeReview(data)
 }
 
 export async function deleteSellerReviewReply(reviewId) {
   const { data } = await http.delete(`/api/v1/seller/reviews/${reviewId}/reply`)
-  return data
+  return normalizeReview(data)
 }

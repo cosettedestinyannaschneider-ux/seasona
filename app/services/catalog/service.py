@@ -262,6 +262,7 @@ def _product_review_stats_subquery():
             func.count(ProductReview.id).label("review_count"),
         )
         .where(ProductReview.status == ReviewStatus.VISIBLE)
+        .where(ProductReview.deleted_at.is_(None))
         .group_by(ProductReview.spu_id)
         .subquery()
     )

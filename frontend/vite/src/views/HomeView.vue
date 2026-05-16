@@ -23,7 +23,13 @@
 
       <div class="hero-panel__visual">
         <div class="fresh-stack fresh-stack--showcase">
-          <img v-for="product in showcase" :key="product.spu_id" :src="product.cover_image_url" :alt="product.name" />
+          <img
+            v-for="item in heroShowcase"
+            :key="item.src"
+            :src="item.src"
+            :alt="item.alt"
+            loading="eager"
+          />
         </div>
       </div>
     </div>
@@ -57,9 +63,26 @@ const router = useRouter()
 const query = ref('')
 const categories = ref([])
 const featured = ref([])
-const showcase = ref([])
 const loading = ref(false)
 const showLoading = useDelayedBusy(loading)
+const heroShowcase = [
+  {
+    src: 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=900&q=88',
+    alt: '鲜艳的番茄、彩椒和叶菜',
+  },
+  {
+    src: 'https://images.unsplash.com/photo-1566385101042-1a0aa0c1268c?auto=format&fit=crop&w=700&q=88',
+    alt: '篮子里的新鲜蔬菜',
+  },
+  {
+    src: 'https://images.unsplash.com/photo-1506806732259-39c2d0268443?auto=format&fit=crop&w=700&q=88',
+    alt: '彩色农产品陈列',
+  },
+  {
+    src: 'https://images.unsplash.com/photo-1488459716781-31db52582fe9?auto=format&fit=crop&w=900&q=88',
+    alt: '市场中的新鲜水果与蔬菜',
+  },
+]
 
 function goCategory(id) {
   router.push({ path: '/search', query: { category_id: id } })
@@ -70,12 +93,11 @@ onMounted(async () => {
   try {
     const [categoryResult, productResult] = await Promise.all([
       listCategories(),
-      searchProducts({ sort_by: 'relevance', page: 1, page_size: 8 }),
+      searchProducts({ sort_by: 'relevance', page: 1, page_size: 12 }),
     ])
     categories.value = categoryResult.items.slice(0, 5)
     if (productResult.items.length) {
-      featured.value = productResult.items.slice(0, 4)
-      showcase.value = productResult.items.slice(0, 4)
+      featured.value = productResult.items.slice(0, 12)
     }
   } finally {
     loading.value = false
