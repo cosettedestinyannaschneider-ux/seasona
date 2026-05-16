@@ -37,7 +37,7 @@
           <small>点击进入钱包，查看余额和资金流水</small>
         </RouterLink>
 
-        <RouterLink class="buyer-panel" to="/orders?tab=WAIT_PAY">
+        <RouterLink class="buyer-panel buyer-panel--urgent" to="/payments">
           <span>待付款</span>
           <strong>{{ counts.waitPay }}</strong>
           <small>需要在超时前完成付款</small>

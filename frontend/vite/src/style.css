@@ -3197,6 +3197,18 @@ main {
   font-size: 2rem;
 }
 
+.buyer-panel--urgent span,
+.buyer-panel--urgent strong {
+  color: var(--tomato);
+}
+
+.buyer-panel--urgent {
+  border-color: rgba(222, 90, 68, 0.28);
+  background:
+    radial-gradient(circle at 88% 12%, rgba(255, 212, 185, 0.34), transparent 5rem),
+    rgba(255, 255, 255, 0.88);
+}
+
 .wallet-summary {
   color: #fff;
   background:
@@ -3365,6 +3377,10 @@ main {
 .order-card:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-soft);
+}
+
+.payment-card {
+  border-color: rgba(222, 90, 68, 0.2);
 }
 
 .order-card__top,
@@ -5388,6 +5404,34 @@ main {
   -webkit-line-clamp: 2;
 }
 
+.admin-review-card--summary {
+  position: relative;
+}
+
+.admin-review-card--summary .admin-review-card__head > div {
+  display: grid;
+  gap: 0.22rem;
+}
+
+.admin-summary-line {
+  display: flex;
+  align-items: baseline;
+  gap: 1.8rem;
+  min-width: 0;
+}
+
+.admin-summary-line strong,
+.admin-summary-line small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-review-card--summary .seller-status-pill {
+  justify-self: end;
+}
+
 .admin-thumb-row {
   display: flex;
   flex-wrap: wrap;
@@ -5633,6 +5677,33 @@ main {
 
 .seller-audit-lock p {
   color: var(--muted);
+}
+
+.seller-action-cover {
+  display: grid;
+  justify-items: center;
+  gap: 0.35rem;
+  padding: 1rem;
+  text-align: center;
+  border: 1px solid rgba(205, 224, 229, 0.95);
+  border-radius: 1rem;
+  background:
+    radial-gradient(circle at 90% 12%, rgba(255, 232, 145, 0.18), transparent 6rem),
+    rgba(255, 255, 255, 0.94);
+  box-shadow: 0 8px 24px rgba(44, 87, 93, 0.08);
+}
+
+.seller-action-cover strong {
+  color: #193238;
+  font-size: 1.05rem;
+}
+
+.seller-action-cover span {
+  color: var(--muted);
+}
+
+.seller-action-cover--bottom {
+  margin-top: 0.25rem;
 }
 
 .seller-form--wide {

@@ -183,8 +183,11 @@
                     @change="uploadAuditImageFile"
                   />
                 </div>
-                <p v-if="!canEditAudit" class="seller-note">{{ auditLockedNote }}</p>
-                <div class="seller-form__actions">
+                <div v-if="!canEditAudit" class="seller-action-cover">
+                  <strong>{{ auditLockTitle }}</strong>
+                  <span>{{ auditLockedNote || auditLockText }}</span>
+                </div>
+                <div v-else class="seller-form__actions">
                   <button class="primary-button" type="submit" :disabled="!canEditAudit || isActionBusy('audit-save')">
                     保存材料
                   </button>
@@ -472,7 +475,11 @@
                     </div>
                   </article>
                 </div>
-                <div class="seller-form__actions seller-form__actions--bottom">
+                <div v-if="activeProduct.status === 'pending_review'" class="seller-action-cover seller-action-cover--bottom">
+                  <strong>商品审核中</strong>
+                  <span>管理员处理前不能继续保存或提交，请等待审核结果。</span>
+                </div>
+                <div v-else class="seller-form__actions seller-form__actions--bottom">
                   <button class="primary-button" type="submit" :disabled="!isProductEditDirty() || isActionBusy('product-edit')">
                     保存商品
                   </button>
@@ -684,18 +691,30 @@
       </button>
     </template>
 
-    <div v-if="auditConfirmVisible" class="confirm-overlay">
-      <div class="confirm-panel">
-        <h2>确认提交资质审核？</h2>
+      <div v-if="auditConfirmVisible" class="confirm-overlay">
+        <div class="confirm-panel">
+          <h2>确认提交资质审核？</h2>
         <p>资质材料提交后将进入管理员审核，在审核完成前不能撤回，也不能继续修改。</p>
         <div class="confirm-actions">
           <button class="seller-ghost-button" type="button" @click="auditConfirmVisible = false">再检查一下</button>
           <button class="primary-button" type="button" @click="confirmSubmitAudit">确认提交</button>
         </div>
+        </div>
       </div>
-    </div>
 
-    <div v-if="switchConfirmVisible" class="confirm-overlay">
+      <div v-if="productCreateConfirmVisible" class="confirm-overlay">
+        <div class="confirm-panel">
+          <h2>商品创建方式</h2>
+          <p>可以先保存为未审核商品，稍后再编辑；也可以保存后直接提交管理员审核。</p>
+          <div class="confirm-actions">
+            <button class="seller-ghost-button" type="button" @click="productCreateConfirmVisible = false">继续编辑</button>
+            <button class="seller-ghost-button" type="button" @click="confirmCreateProduct(false)">仅保存</button>
+            <button class="primary-button" type="button" @click="confirmCreateProduct(true)">保存并提交审核</button>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="switchConfirmVisible" class="confirm-overlay">
       <div class="confirm-panel">
         <h2>当前页面有未保存修改</h2>
         <p>保存当前修改后切换，或放弃修改直接前往新的工作区。</p>
@@ -877,6 +896,7 @@ const productEditSkuRows = ref([])
 const auditConfirmVisible = ref(false)
 const switchConfirmVisible = ref(false)
 const pendingPanel = ref('')
+const productCreateConfirmVisible = ref(false)
 const productSaveConfirmVisible = ref(false)
 const REVIEW_PRODUCT_PAGE_SIZE = 8
 const REVIEW_DETAIL_PAGE_SIZE = 8
@@ -1030,7 +1050,7 @@ function isActionBusy(key) {
   return actionKey.value === key
 }
 
-async function runAction(key, successMessage, task) {
+async function runAction(key, successMessage, task, fallbackMessage = '') {
   actionKey.value = key
   clearMessage()
   try {
@@ -1038,7 +1058,7 @@ async function runAction(key, successMessage, task) {
     if (successMessage) setMessage(successMessage)
     return result
   } catch (error) {
-    setMessage(apiErrorMessage(error), 'error')
+    setMessage(apiErrorMessage(error, fallbackMessage || '请求失败，请稍后再试'), 'error')
     throw error
   } finally {
     actionKey.value = ''
@@ -1166,7 +1186,7 @@ async function uploadLogoFile(event) {
   await runAction('logo-upload', '店铺 Logo 已上传，请保存店铺资料。', async () => {
     const data = await uploadProductImage(file)
     profileForm.shop_logo_url = data.image_url
-  }).catch(() => {})
+  }, '图片上传失败，请稍后再试').catch(() => {})
   event.target.value = ''
 }
 
@@ -1206,7 +1226,7 @@ async function uploadAuditImageFile(event) {
       uploaded.push(data.image_url)
     }
     auditImageUrls.value = [...auditImageUrls.value, ...uploaded].slice(0, 12)
-  }).catch(() => {})
+  }, '图片上传失败，请稍后再试').catch(() => {})
   event.target.value = ''
 }
 
@@ -1230,7 +1250,7 @@ async function uploadProductImageFile(target, event) {
     } else if (target === 'edit-detail') {
       productEditImages.value = [...productEditImages.value, ...uploaded].slice(0, 11)
     }
-  }).catch(() => {})
+  }, '图片上传失败，请稍后再试').catch(() => {})
   event.target.value = ''
 }
 
@@ -1280,12 +1300,23 @@ async function createProduct() {
     setMessage(validation, 'error')
     return
   }
-  await runAction('product-create', '商品已创建，记得提交审核。', async () => {
-    const product = await createSellerProduct(buildProductPayload())
-    resetProductForm()
-    await loadProducts()
-    await selectProduct(product)
-  }).catch(() => {})
+  productCreateConfirmVisible.value = true
+}
+
+async function confirmCreateProduct(submitForReview) {
+  productCreateConfirmVisible.value = false
+  await runAction(
+    'product-create',
+    submitForReview ? '商品已创建并提交审核。' : '商品已保存。',
+    async () => {
+      const product = await createSellerProduct(buildProductPayload())
+      if (submitForReview) {
+        await submitSellerProduct(product.id)
+      }
+      resetProductForm()
+      await loadProducts()
+    },
+  ).catch(() => {})
 }
 
 async function selectProduct(product) {

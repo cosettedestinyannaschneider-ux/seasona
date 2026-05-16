@@ -175,9 +175,10 @@
               <article v-for="merchant in merchants" :key="merchant.id" class="admin-review-card admin-review-card--summary">
                 <div class="admin-review-card__head">
                   <div>
-                    <strong>{{ merchant.shop_name }}</strong>
-                    <span>{{ merchant.contact_name }} · {{ merchant.contact_phone }}</span>
-                    <small>{{ auditLabel(merchant.audit_status) }} · {{ formatDate(merchant.updated_at) }}</small>
+                    <div class="admin-summary-line">
+                      <strong>{{ merchant.shop_name }}</strong>
+                      <small>处理时间　{{ formatDate(merchant.updated_at) }}</small>
+                    </div>
                   </div>
                   <small :class="['seller-status-pill', statusClass(merchant.audit_status)]">
                     {{ auditLabel(merchant.audit_status) }}
@@ -251,13 +252,14 @@
           <template v-if="selectedProduct">
             <button class="seller-ghost-button" type="button" @click="selectedProduct = null">返回列表</button>
             <article class="admin-detail-post">
-              <div class="admin-detail-post__head">
-                <div>
-                  <h2>{{ selectedProduct.name }}</h2>
-                  <span>{{ selectedProduct.merchant_shop_name || '未知商家' }} · {{ selectedProduct.category_name || '未命名分类' }}</span>
-                  <small>{{ money(selectedProduct.min_price) }} 起 · 库存 {{ selectedProduct.stock_total ?? 0 }}</small>
+                <div class="admin-detail-post__head">
+                  <div>
+                    <h2>{{ selectedProduct.name }}</h2>
+                    <span>分类：{{ selectedProduct.category_name || '未命名分类' }}</span>
+                    <span>店铺：{{ selectedProduct.merchant_shop_name || '未知商家' }}</span>
+                    <small>{{ money(selectedProduct.min_price) }} 起 · 库存 {{ selectedProduct.stock_total ?? 0 }}</small>
+                  </div>
                 </div>
-              </div>
               <p class="admin-detail-post__text">{{ selectedProduct.description || '商家没有填写商品描述。' }}</p>
               <div v-if="productImageUrls(selectedProduct).length" class="admin-detail-images">
                 <button
@@ -310,13 +312,15 @@
             </div>
             <div v-if="pendingProducts.length" class="seller-list">
               <article v-for="product in pendingProducts" :key="product.id" class="admin-review-card admin-review-card--summary">
-                <div class="admin-product-head">
-                  <img v-if="product.cover_image_url" :src="mediaUrl(product.cover_image_url)" :alt="product.name" />
+                <div class="admin-review-card__head">
                   <div>
                     <strong>{{ product.name }}</strong>
-                    <span>{{ product.merchant_shop_name || '未知商家' }} · {{ product.category_name || '未命名分类' }}</span>
-                    <small>{{ productStatusLabel(product.status) }} · {{ money(product.min_price) }} 起 · 库存 {{ product.stock_total ?? 0 }}</small>
+                    <span>分类：{{ product.category_name || '未命名分类' }}</span>
+                    <span>店铺：{{ product.merchant_shop_name || '未知商家' }}</span>
                   </div>
+                  <small :class="['seller-status-pill', statusClass(product.status)]">
+                    {{ productStatusLabel(product.status) }}
+                  </small>
                 </div>
                 <p>{{ product.description || '商家没有填写商品描述。' }}</p>
                 <button class="seller-ghost-button" type="button" @click="openProductDetail(product)">查看详情</button>

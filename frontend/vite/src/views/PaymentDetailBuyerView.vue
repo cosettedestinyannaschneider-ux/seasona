@@ -157,7 +157,7 @@ function setMessage(text, type = 'info') {
 }
 
 function goBack() {
-  router.push('/orders?tab=WAIT_PAY')
+  router.push('/payments')
 }
 
 async function loadPayment() {

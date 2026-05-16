@@ -45,7 +45,11 @@ export function apiErrorMessage(error, fallback = '请求失败，请稍后再�
   if (typeof data?.message === 'string') return translateApiMessage(data.message)
   const clientMessage = translateClientError(error)
   if (clientMessage) return clientMessage
-  return error?.message || fallback
+  if (typeof error?.message === 'string') {
+    const translated = translateApiMessage(error.message)
+    if (translated && translated !== error.message) return translated
+  }
+  return fallback
 }
 
 function translateClientError(error) {
@@ -58,6 +62,9 @@ function translateClientError(error) {
   }
   if (message.includes('Network Error')) {
     return '网络连接失败，请检查服务器或网络'
+  }
+  if (status === 413 || lowerMessage.includes('image exceeds') || lowerMessage.includes('payload too large')) {
+    return '图片过大，请换一张更小的图片'
   }
   if (status === 504) return '服务响应超时，请稍后再试'
   if (status === 502 || status === 503) return '服务暂时不可用，请稍后再试'
