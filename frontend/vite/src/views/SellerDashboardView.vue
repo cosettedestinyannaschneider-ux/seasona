@@ -220,10 +220,10 @@
                   <select v-model="productStatusFilter" @change="loadProducts">
                     <option value="">全部状态</option>
                     <option value="draft">未审核</option>
-                    <option value="pending_review">审核中</option>
+                    <option value="pending_review">待审核</option>
                     <option value="online">在线</option>
-                    <option value="offline">已下架</option>
-                    <option value="rejected">已驳回</option>
+                    <option value="offline">未上架</option>
+                    <option value="rejected">审核被驳回</option>
                   </select>
                   <button class="primary-button" type="button" @click="openProductCreate">
                     <Plus :size="17" />
@@ -362,7 +362,12 @@
                 <div class="seller-editor-topbar">
                   <div class="seller-section-heading">
                     <h2>编辑商品</h2>
-                    <p>审核中商品不可编辑；上线行为会重新进入审核。已创建商品当前可维护已有 SKU。</p>
+                    <p>
+                      <span class="seller-status-pill seller-status-pill--compact" :class="statusClass(activeProduct.status)">
+                        {{ productStatusLabel(activeProduct.status) }}
+                      </span>
+                      审核中商品不可编辑；上线行为会重新进入审核。已创建商品当前可维护已有 SKU。
+                    </p>
                   </div>
                   <button class="seller-ghost-button" type="button" @click="goProductList">返回列表</button>
                 </div>
@@ -480,6 +485,15 @@
                   <span>管理员处理前不能继续保存或提交，请等待审核结果。</span>
                 </div>
                 <div v-else class="seller-form__actions seller-form__actions--bottom">
+                  <button
+                    v-if="canDeleteProduct(activeProduct)"
+                    class="seller-danger-button seller-danger-button--left"
+                    type="button"
+                    :disabled="isActionBusy('product-delete')"
+                    @click="requestDeleteProduct"
+                  >
+                    删除商品
+                  </button>
                   <button class="primary-button" type="submit" :disabled="!isProductEditDirty() || isActionBusy('product-edit')">
                     保存商品
                   </button>
@@ -525,7 +539,12 @@
                   <div>
                     <strong>{{ product.name }}</strong>
                     <span>{{ product.category_name || '未命名分类' }} · {{ money(product.min_price) }} 起</span>
-                    <small>{{ product.stock_total ?? 0 }} 件可售 · {{ productStatusLabel(product.status) }}</small>
+                    <small>
+                      {{ product.stock_total ?? 0 }} 件可售
+                      <span class="seller-status-pill seller-status-pill--compact" :class="statusClass(product.status)">
+                        {{ productStatusLabel(product.status) }}
+                      </span>
+                    </small>
                   </div>
                   <button type="button" @click="selectProduct(product)">编辑</button>
                 </article>
@@ -738,6 +757,17 @@
         </div>
       </div>
     </div>
+
+    <div v-if="productDeleteConfirmVisible" class="confirm-overlay">
+      <div class="confirm-panel">
+        <h2>确认删除商品？</h2>
+        <p>删除后该商品会从商品管理中移除，历史订单和评价仍会被系统安全保留。</p>
+        <div class="confirm-actions">
+          <button class="seller-ghost-button" type="button" @click="productDeleteConfirmVisible = false">取消</button>
+          <button class="primary-button primary-button--danger" type="button" @click="confirmDeleteProduct">确认删除</button>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -762,6 +792,7 @@ import {
 import { apiErrorMessage, mediaUrl } from '../api/http'
 import {
   createSellerProduct,
+  deleteSellerProduct,
   deleteSellerReviewReply,
   getSellerDashboard,
   getSellerEarnings,
@@ -898,6 +929,7 @@ const switchConfirmVisible = ref(false)
 const pendingPanel = ref('')
 const productCreateConfirmVisible = ref(false)
 const productSaveConfirmVisible = ref(false)
+const productDeleteConfirmVisible = ref(false)
 const REVIEW_PRODUCT_PAGE_SIZE = 8
 const REVIEW_DETAIL_PAGE_SIZE = 8
 
@@ -1413,6 +1445,23 @@ async function offlineProduct(spuId) {
   }).catch(() => {})
 }
 
+function requestDeleteProduct() {
+  if (!activeProduct.value || !canDeleteProduct(activeProduct.value)) return
+  productDeleteConfirmVisible.value = true
+}
+
+async function confirmDeleteProduct() {
+  if (!activeProduct.value) return
+  const spuId = activeProduct.value.id
+  productDeleteConfirmVisible.value = false
+  await runAction('product-delete', '商品已删除。', async () => {
+    await deleteSellerProduct(spuId)
+    activeProduct.value = null
+    productMode.value = 'list'
+    await loadProducts()
+  }).catch(() => {})
+}
+
 async function selectOrder(orderId) {
   await router.push(`/seller/orders/${orderId}`)
 }
@@ -1823,6 +1872,10 @@ function canRequestOnline(product) {
   return ['offline'].includes(product?.status)
 }
 
+function canDeleteProduct(product) {
+  return ['draft', 'offline', 'rejected'].includes(product?.status)
+}
+
 function statusClass(value) {
   return String(value || 'unknown').toLowerCase().replaceAll('_', '-')
 }
@@ -1840,10 +1893,10 @@ function auditLabel(value) {
 function productStatusLabel(value) {
   return {
     draft: '未审核',
-    pending_review: '审核中',
+    pending_review: '待审核',
     online: '在线',
-    offline: '已下架',
-    rejected: '已驳回',
+    offline: '未上架',
+    rejected: '审核被驳回',
   }[value] || value || '未知'
 }
 

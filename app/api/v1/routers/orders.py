@@ -251,9 +251,9 @@ def create_review(
         )
         db.commit()
         try:
-            from app.services.search.service import upsert_product_search_document
+            from app.services.search.service import upsert_product_search_document_for_review_if_due
 
-            upsert_product_search_document(db, review.spu_id)
+            upsert_product_search_document_for_review_if_due(db, review.spu_id)
         except Exception:
             pass
         return review

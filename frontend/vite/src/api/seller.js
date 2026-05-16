@@ -113,6 +113,10 @@ export async function updateSellerProduct(spuId, payload) {
   return normalizeProduct(data)
 }
 
+export async function deleteSellerProduct(spuId) {
+  await http.delete(`/api/v1/seller/products/${spuId}`)
+}
+
 export async function submitSellerProduct(spuId) {
   const { data } = await http.post(`/api/v1/seller/products/${spuId}/submit`)
   return normalizeProduct(data)

@@ -4659,6 +4659,27 @@ main {
   background: rgba(222, 90, 68, 0.12);
 }
 
+.seller-status-pill.draft {
+  color: #68736f;
+  background: rgba(124, 137, 130, 0.14);
+}
+
+.seller-status-pill.offline {
+  color: var(--tomato);
+  background: rgba(222, 90, 68, 0.1);
+}
+
+.seller-status-pill.rejected {
+  color: #9b281f;
+  background: rgba(155, 40, 31, 0.16);
+}
+
+.seller-status-pill--compact {
+  min-height: 1.35rem;
+  padding: 0 0.48rem;
+  font-size: 0.74rem;
+}
+
 .seller-console__sidebar nav {
   display: grid;
   gap: 0.28rem;
@@ -4883,6 +4904,40 @@ main {
   background: rgba(255, 245, 231, 0.75);
 }
 
+.seller-danger-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.65rem;
+  padding: 0 0.9rem;
+  color: #fff;
+  cursor: pointer;
+  border: 0;
+  border-radius: 0.85rem;
+  background: var(--tomato);
+  transition:
+    transform 160ms var(--ease),
+    box-shadow 160ms var(--ease),
+    background 160ms var(--ease);
+}
+
+.seller-danger-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(222, 90, 68, 0.18);
+  background: #b83f2f;
+}
+
+.seller-danger-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+  transform: none;
+  box-shadow: none;
+}
+
+.seller-danger-button--left {
+  margin-right: auto;
+}
+
 .seller-form,
 .seller-product-create,
 .seller-product-editor {
@@ -5051,6 +5106,12 @@ main {
   color: var(--muted);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.seller-product-row small {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
 }
 
 .seller-product-row button {

@@ -55,6 +55,7 @@ class ProductSpu(TimestampMixin, Base):
         default=ProductStatus.DRAFT,
         index=True,
     )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
 
 
 class ProductSku(TimestampMixin, Base):
@@ -126,4 +127,3 @@ class ProductReview(TimestampMixin, Base):
         default=ReviewStatus.VISIBLE,
         index=True,
     )
-

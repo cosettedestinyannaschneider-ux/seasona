@@ -113,8 +113,17 @@ def _ensure_product_ownership(product: ProductSpu, merchant_id: int) -> None:
         )
 
 
+def _ensure_product_not_deleted(product: ProductSpu) -> None:
+    if product.deleted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Product not found.",
+        )
+
+
 def _public_product_filters() -> list[Any]:
     return [
+        ProductSpu.deleted_at.is_(None),
         ProductSpu.status == ProductStatus.ONLINE,
         MerchantProfile.audit_status == MerchantAuditStatus.APPROVED,
         UserAccount.status == UserStatus.ACTIVE,
@@ -125,7 +134,7 @@ def _public_product_filters() -> list[Any]:
 def _sync_product_discovery_indexes(db: Any, product: ProductSpu) -> None:
     from app.services.search.service import remove_product_search_document, upsert_product_search_document
 
-    if product.status == ProductStatus.ONLINE:
+    if product.deleted_at is None and product.status == ProductStatus.ONLINE:
         upsert_product_search_document(db, product.id)
         return
 
@@ -440,6 +449,7 @@ def get_product_detail(db: Any, spu_id: int) -> ProductDetail:
         )
 
     spu: ProductSpu = row.ProductSpu
+    _ensure_product_not_deleted(spu)
     skus = db.execute(
         select(ProductSku).where(ProductSku.spu_id == spu.id).order_by(ProductSku.id.asc())
     ).scalars().all()
@@ -568,6 +578,7 @@ def update_product(db: Any, seller_user: Any, spu_id: int, payload: ProductUpdat
             detail="Product not found.",
     )
     _ensure_product_ownership(product, merchant.id)
+    _ensure_product_not_deleted(product)
     _ensure_editable_product(product)
     original_status = product.status
     review_required = False
@@ -615,6 +626,35 @@ def update_product(db: Any, seller_user: Any, spu_id: int, payload: ProductUpdat
     db.flush()
     _sync_product_discovery_indexes(db, product)
     return product
+
+
+def delete_seller_product(db: Any, seller_user: Any, spu_id: int) -> None:
+    merchant = _require_seller_merchant(seller_user)
+    product = db.execute(
+        select(ProductSpu)
+        .where(ProductSpu.id == spu_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+    if product is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Product not found.",
+        )
+    _ensure_product_ownership(product, merchant.id)
+    _ensure_product_not_deleted(product)
+    if product.status not in {ProductStatus.DRAFT, ProductStatus.OFFLINE, ProductStatus.REJECTED}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Product can only be deleted before review, after rejection, or while offline.",
+        )
+
+    product.deleted_at = datetime.now(UTC)
+    db.flush()
+
+    from app.services.search.service import remove_product_search_document
+
+    remove_product_search_document(spu_id)
 
 
 def _image_signature(image: ProductImage | ProductImageCreate) -> tuple[str, int | None, bool, int]:
@@ -841,6 +881,7 @@ def submit_product_for_review(db: Any, seller_user: Any, spu_id: int) -> Product
             detail="Product not found.",
         )
     _ensure_product_ownership(product, merchant.id)
+    _ensure_product_not_deleted(product)
     if product.status not in {ProductStatus.DRAFT, ProductStatus.REJECTED, ProductStatus.OFFLINE}:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -864,7 +905,7 @@ def list_seller_products(
     status_filter: ProductStatus | None = None,
 ) -> ProductListResponse:
     merchant = _require_seller_merchant(seller_user)
-    filters = [ProductSpu.merchant_id == merchant.id]
+    filters = [ProductSpu.merchant_id == merchant.id, ProductSpu.deleted_at.is_(None)]
     if status_filter is not None:
         filters.append(ProductSpu.status == status_filter)
     statement = select(ProductSpu).where(and_(*filters)).order_by(ProductSpu.created_at.desc())
@@ -897,11 +938,17 @@ def list_admin_products(
     page_size: int = 20,
     status_filter: ProductStatus | None = ProductStatus.PENDING_REVIEW,
 ) -> ProductListResponse:
-    statement = select(ProductSpu).where(ProductSpu.status == ProductStatus.PENDING_REVIEW)
+    statement = select(ProductSpu).where(
+        ProductSpu.status == ProductStatus.PENDING_REVIEW,
+        ProductSpu.deleted_at.is_(None),
+    )
     if status_filter is None:
-        statement = select(ProductSpu)
+        statement = select(ProductSpu).where(ProductSpu.deleted_at.is_(None))
     else:
-        statement = select(ProductSpu).where(ProductSpu.status == status_filter)
+        statement = select(ProductSpu).where(
+            ProductSpu.status == status_filter,
+            ProductSpu.deleted_at.is_(None),
+        )
     total = db.execute(select(func.count()).select_from(statement.subquery())).scalar_one()
     items = []
     for spu in db.execute(
@@ -932,6 +979,7 @@ def review_product(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Product not found.",
         )
+    _ensure_product_not_deleted(product)
     if product.status != ProductStatus.PENDING_REVIEW:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -964,6 +1012,7 @@ def admin_take_down_product(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Product not found.",
         )
+    _ensure_product_not_deleted(product)
     if product.status != ProductStatus.ONLINE:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -987,6 +1036,7 @@ def set_product_offline(db: Any, seller_user: Any, spu_id: int) -> ProductSpu:
             detail="Product not found.",
         )
     _ensure_product_ownership(product, merchant.id)
+    _ensure_product_not_deleted(product)
     if product.status != ProductStatus.ONLINE:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1007,6 +1057,7 @@ def set_product_online(db: Any, seller_user: Any, spu_id: int) -> ProductSpu:
             detail="Product not found.",
         )
     _ensure_product_ownership(product, merchant.id)
+    _ensure_product_not_deleted(product)
     if product.status == ProductStatus.ONLINE:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

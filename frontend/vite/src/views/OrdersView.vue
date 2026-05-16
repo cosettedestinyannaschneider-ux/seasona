@@ -71,7 +71,6 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const orders = ref([])
-const activeTab = ref(validTab(route.query.tab) || 'all')
 const message = ref('')
 const loading = ref(false)
 const showLoading = useDelayedBusy(loading)
@@ -86,6 +85,8 @@ const tabs = [
   { value: 'REFUNDED', label: '已退款' },
   { value: 'CANCELLED', label: '已取消' },
 ]
+
+const activeTab = ref(validTab(route.query.tab) || 'all')
 
 const filteredOrders = computed(() => {
   const normalOrders = orders.value.filter((item) => item.status !== 'WAIT_PAY')

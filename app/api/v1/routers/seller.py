@@ -275,6 +275,22 @@ def update_my_product(
         raise
 
 
+@router.delete("/products/{spu_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_my_product(
+    spu_id: int,
+    current_seller: Any = Depends(require_roles(UserRole.SELLER)),
+    db: Any = Depends(get_db),
+) -> None:
+    from app.services.catalog.service import delete_seller_product
+
+    try:
+        delete_seller_product(db, current_seller, spu_id)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+
 @router.patch("/skus/{sku_id}", deprecated=True)
 def update_my_sku(
     sku_id: int,

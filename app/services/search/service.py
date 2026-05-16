@@ -88,6 +88,7 @@ def _timestamp_value(value: Any) -> int | None:
 
 def _discoverable_product_filters() -> list[Any]:
     return [
+        ProductSpu.deleted_at.is_(None),
         ProductSpu.status == ProductStatus.ONLINE,
         MerchantProfile.audit_status == MerchantAuditStatus.APPROVED,
         UserAccount.status == UserStatus.ACTIVE,
@@ -491,6 +492,30 @@ def remove_product_search_document(spu_id: int) -> bool:
         return result is not None
     except Exception:
         return False
+
+
+def upsert_product_search_document_for_review_if_due(
+    db: Any,
+    spu_id: int,
+    *,
+    cooldown_seconds: int = 300,
+) -> bool:
+    settings = get_settings()
+    if not settings.redis_url:
+        return upsert_product_search_document(db, spu_id)
+
+    try:
+        import redis  # type: ignore
+
+        client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
+        key = f"seasona:search:review-refresh:{spu_id}"
+        acquired = client.set(key, "1", nx=True, ex=cooldown_seconds)
+    except Exception:
+        return upsert_product_search_document(db, spu_id)
+
+    if not acquired:
+        return False
+    return upsert_product_search_document(db, spu_id)
 
 
 def sync_merchant_search_documents(db: Any, merchant_id: int) -> int:
