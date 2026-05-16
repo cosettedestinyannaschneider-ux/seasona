@@ -54,6 +54,7 @@ MEILI_FILTERABLE_ATTRIBUTES = [
     "stock_total",
 ]
 MEILI_SORTABLE_ATTRIBUTES = [
+    "average_rating",
     "min_price",
     "max_price",
     "stock_total",
@@ -240,6 +241,8 @@ def _row_to_search_document(db: Any, row: Any) -> dict[str, Any]:
         "min_price": float(row.min_price or 0),
         "max_price": float(row.max_price or 0),
         "stock_total": int(row.stock_total or 0),
+        "average_rating": float(row.average_rating or 0),
+        "review_count": int(row.review_count or 0),
         "status": _enum_value(spu.status),
         "merchant_audit_status": MerchantAuditStatus.APPROVED.value,
         "seller_status": UserStatus.ACTIVE.value,
@@ -419,6 +422,8 @@ def _filter_expression(filters: Sequence[str]) -> str:
 
 
 def _sort_expression(sort_by: ProductSearchSort) -> list[str] | None:
+    if sort_by == ProductSearchSort.RELEVANCE:
+        return ["average_rating:desc", "created_at_ts:desc"]
     if sort_by == ProductSearchSort.NEWEST:
         return ["created_at_ts:desc"]
     if sort_by == ProductSearchSort.PRICE_ASC:
@@ -607,13 +612,14 @@ def search_products(
     query: str = "",
     category_id: int | None = None,
     origin_place: str | None = None,
+    in_stock_only: bool = False,
     sort_by: ProductSearchSort = ProductSearchSort.RELEVANCE,
     page: int = 1,
     page_size: int = 20,
 ) -> ProductSearchResponse:
     query = _normalize_query(query)
     settings = get_settings()
-    filters = _base_meili_filter()
+    filters = _base_meili_filter(require_stock=in_stock_only)
     if category_id is not None:
         filters.append(f"category_id = {category_id}")
     if origin_place:

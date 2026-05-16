@@ -753,6 +753,11 @@ main {
   font-size: 1.18rem;
 }
 
+.rating-chip--empty {
+  color: var(--muted);
+  font-weight: 720;
+}
+
 .rating-score--good {
   color: var(--leaf-strong);
 }
@@ -1680,6 +1685,61 @@ main {
 
 .filter-option:hover {
   transform: translateX(2px);
+}
+
+.filter-section--stock {
+  padding-top: 0.55rem;
+  border-top: 1px solid rgba(223, 233, 216, 0.82);
+}
+
+.stock-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: 2.35rem;
+  padding: 0 0.1rem;
+  color: var(--muted);
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  font-weight: 760;
+}
+
+.stock-toggle i {
+  position: relative;
+  flex: 0 0 auto;
+  width: 2.35rem;
+  height: 1.32rem;
+  border-radius: 999px;
+  background: rgba(132, 146, 130, 0.26);
+  transition: background 180ms var(--ease);
+}
+
+.stock-toggle i::after {
+  content: '';
+  position: absolute;
+  top: 0.17rem;
+  left: 0.17rem;
+  width: 0.98rem;
+  height: 0.98rem;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 3px 8px rgba(37, 66, 42, 0.16);
+  transition: transform 180ms var(--ease);
+}
+
+.stock-toggle.active {
+  color: var(--leaf-strong);
+}
+
+.stock-toggle.active i {
+  background: var(--leaf);
+}
+
+.stock-toggle.active i::after {
+  transform: translateX(1.03rem);
 }
 
 .filter-drop-enter-active,
@@ -3522,8 +3582,13 @@ main {
   gap: 0.25rem;
 }
 
-.order-item-row span {
+.order-item-row span,
+.order-item-row small {
   color: var(--muted);
+}
+
+.order-item-row small {
+  font-size: 0.82rem;
 }
 
 .review-list {
@@ -3994,6 +4059,13 @@ main {
   color: var(--muted);
 }
 
+.address-strip__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
 .address-strip button {
   min-height: 2.2rem;
   padding: 0 0.7rem;
@@ -4002,6 +4074,12 @@ main {
   border: 1px solid rgba(222, 90, 68, 0.2);
   border-radius: 999px;
   background: rgba(255, 245, 231, 0.72);
+}
+
+.address-strip__actions button:first-child {
+  color: var(--leaf-strong);
+  border-color: var(--line);
+  background: rgba(237, 246, 231, 0.72);
 }
 
 .confirm-overlay {
@@ -4356,6 +4434,23 @@ main {
   border-radius: 0.75rem;
   outline: 0;
   background: #fff;
+}
+
+.profile-address-form select,
+.checkout-address-form select {
+  min-height: 2.65rem;
+  padding: 0 0.75rem;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  outline: 0;
+  background: #fff;
+}
+
+.profile-address-form select:disabled,
+.checkout-address-form select:disabled {
+  color: var(--muted);
+  background: rgba(247, 249, 244, 0.76);
 }
 
 .save-address-option {

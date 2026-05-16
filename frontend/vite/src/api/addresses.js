@@ -22,6 +22,11 @@ export async function createAddress(payload) {
   return normalizeAddress(data)
 }
 
+export async function updateAddress(addressId, payload) {
+  const { data } = await http.patch(`/api/v1/addresses/${addressId}`, payload)
+  return normalizeAddress(data)
+}
+
 export async function deleteAddress(addressId) {
   await http.delete(`/api/v1/addresses/${addressId}`)
 }

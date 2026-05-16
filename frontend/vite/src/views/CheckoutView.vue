@@ -50,7 +50,7 @@
               @click="selectedAddressId = address.id"
             >
               <strong>{{ address.receiver_name }} {{ maskPhone(address.receiver_phone) }}</strong>
-              <span>{{ address.province }} {{ address.city }} {{ address.district }} {{ address.detail }}</span>
+              <span>{{ addressLine(address) }}</span>
             </button>
           </div>
           <div v-else class="empty-state">当前暂无地址</div>
@@ -68,11 +68,21 @@
           <div class="receiver-grid">
             <label>
               省份
-              <input v-model.trim="receiver.province" type="text" />
+              <select v-model="receiver.province" @change="onReceiverProvinceChange">
+                <option value="" disabled>请选择省份</option>
+                <option v-for="province in provinceList" :key="province" :value="province">
+                  {{ province }}
+                </option>
+              </select>
             </label>
             <label>
               城市
-              <input v-model.trim="receiver.city" type="text" />
+              <select v-model="receiver.city" :disabled="!receiver.province">
+                <option value="" disabled>请选择城市</option>
+                <option v-for="city in receiverCityList" :key="city" :value="city">
+                  {{ city }}
+                </option>
+              </select>
             </label>
             <label>
               区县
@@ -113,6 +123,7 @@ import { apiErrorMessage } from '../api/http'
 import { useAuthStore } from '../stores/auth'
 import { useCartStore } from '../stores/cart'
 import { useDelayedBusy } from '../composables/useDelayedBusy'
+import { cityOptionsForProvince, formatAddressLine, normalizeAddressRegion, provinceOptions } from '../utils/address'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -135,10 +146,12 @@ const receiver = reactive({
   detail: '',
 })
 const showAddressLoading = useDelayedBusy(addressLoading)
+const provinceList = provinceOptions()
 
 const visibleItems = computed(() => (draft.value?.items || []).slice(0, 5))
 const extraCount = computed(() => Math.max(0, (draft.value?.items?.length || 0) - visibleItems.value.length))
 const totalAmount = computed(() => Number(draft.value?.total_amount || 0))
+const receiverCityList = computed(() => cityOptionsForProvince(receiver.province))
 
 function money(value) {
   return Number(value || 0).toFixed(2)
@@ -184,12 +197,21 @@ async function loadAddresses() {
 }
 
 function selectedAddress() {
-  if (activeTab.value === 'manual') return { ...receiver }
-  return addresses.value.find((item) => item.id === selectedAddressId.value) || null
+  if (activeTab.value === 'manual') return normalizeAddressRegion(receiver)
+  const address = addresses.value.find((item) => item.id === selectedAddressId.value) || null
+  return address ? normalizeAddressRegion(address) : null
 }
 
 function receiverComplete(value) {
   return value && ['receiver_name', 'receiver_phone', 'province', 'city', 'district', 'detail'].every((key) => value[key])
+}
+
+function addressLine(address) {
+  return formatAddressLine(address)
+}
+
+function onReceiverProvinceChange() {
+  receiver.city = ''
 }
 
 async function saveAddressIfNeeded(value) {

@@ -7,7 +7,7 @@ from app.core.dependencies import require_roles
 from app.db.session import get_db
 from app.models.enums import UserRole
 from app.models.user import Address
-from app.schemas.user import AddressCreate, AddressListResponse, AddressPublic
+from app.schemas.user import AddressCreate, AddressListResponse, AddressPublic, AddressUpdate
 
 
 router = APIRouter()
@@ -67,6 +67,51 @@ def create_address(
             is_default=is_default,
         )
         db.add(address)
+        db.commit()
+        db.refresh(address)
+        return AddressPublic.model_validate(address)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
+
+
+@router.patch("/{address_id}", response_model=AddressPublic)
+def update_address(
+    address_id: int,
+    payload: AddressUpdate,
+    current_buyer: Any = Depends(require_roles(UserRole.BUYER)),
+    db: Any = Depends(get_db),
+) -> AddressPublic:
+    try:
+        address = db.execute(
+            select(Address)
+            .where(Address.id == address_id)
+            .where(Address.user_id == current_buyer.id)
+            .with_for_update()
+            .limit(1)
+        ).scalar_one_or_none()
+        if address is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Address not found.")
+
+        next_is_default = payload.is_default or address.is_default
+        if next_is_default:
+            db.execute(
+                update(Address)
+                .where(Address.user_id == current_buyer.id)
+                .where(Address.id != address.id)
+                .values(is_default=False)
+            )
+
+        address.receiver_name = payload.receiver_name
+        address.receiver_phone = payload.receiver_phone
+        address.province = payload.province
+        address.city = payload.city
+        address.district = payload.district
+        address.detail = payload.detail
+        address.is_default = next_is_default
         db.commit()
         db.refresh(address)
         return AddressPublic.model_validate(address)

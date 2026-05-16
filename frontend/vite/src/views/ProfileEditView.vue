@@ -144,7 +144,10 @@
               <strong>{{ address.receiver_name }} {{ address.receiver_phone }}</strong>
               <small>{{ addressLine(address) }}</small>
             </div>
-            <button type="button" @click="removeAddress(address.id)">删除</button>
+            <div class="address-strip__actions">
+              <button type="button" @click="editAddress(address)">修改</button>
+              <button type="button" @click="removeAddress(address.id)">删除</button>
+            </div>
           </article>
         </div>
         <div v-else class="empty-state">当前暂无地址</div>
@@ -161,11 +164,21 @@
           <div class="receiver-grid">
             <label>
               省份
-              <input v-model.trim="addressForm.province" type="text" />
+              <select v-model="addressForm.province" @change="onAddressProvinceChange">
+                <option value="" disabled>请选择省份</option>
+                <option v-for="province in provinceList" :key="province" :value="province">
+                  {{ province }}
+                </option>
+              </select>
             </label>
             <label>
               城市
-              <input v-model.trim="addressForm.city" type="text" />
+              <select v-model="addressForm.city" :disabled="!addressForm.province">
+                <option value="" disabled>请选择城市</option>
+                <option v-for="city in addressCityList" :key="city" :value="city">
+                  {{ city }}
+                </option>
+              </select>
             </label>
             <label>
               区县
@@ -176,9 +189,12 @@
             详细地址
             <input v-model.trim="addressForm.detail" type="text" />
           </label>
-          <button class="primary-button" type="submit" :disabled="saving">
-            {{ saving ? '正在添加' : '新增地址' }}
-          </button>
+          <div class="profile-edit-actions">
+            <button class="primary-button" type="submit" :disabled="saving">
+              {{ saving ? '保存中' : editingAddressId ? '保存地址' : '新增地址' }}
+            </button>
+            <button v-if="editingAddressId" class="secondary-button" type="button" @click="cancelAddressEdit">取消修改</button>
+          </div>
         </form>
 
         <p v-if="message" class="form-message" :class="{ 'form-message--error': messageType === 'error' }">
@@ -213,13 +229,14 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { onBeforeRouteLeave, useRouter } from 'vue-router'
 import { UserRound } from 'lucide-vue-next'
-import { createAddress, deleteAddress, listAddresses } from '../api/addresses'
+import { createAddress, deleteAddress, listAddresses, updateAddress } from '../api/addresses'
 import { updateContact, updateMe, updatePassword } from '../api/auth'
 import { apiErrorMessage, mediaUrl } from '../api/http'
 import { uploadAvatar } from '../api/uploads'
 import { useAuthStore } from '../stores/auth'
 import { useCartStore } from '../stores/cart'
 import { useDelayedBusy } from '../composables/useDelayedBusy'
+import { cityOptionsForProvince, formatAddressLine, normalizeAddressRegion, provinceOptions } from '../utils/address'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -234,6 +251,7 @@ const messageType = ref('info')
 const passwordEdit = ref(false)
 const addressLoading = ref(false)
 const addressLoaded = ref(false)
+const editingAddressId = ref(null)
 const addresses = ref([])
 const showAddressLoading = useDelayedBusy(addressLoading)
 const form = reactive({
@@ -257,6 +275,7 @@ const addressForm = reactive({
   city: '',
   district: '',
   detail: '',
+  is_default: false,
 })
 const confirmDialog = reactive({
   open: false,
@@ -269,6 +288,8 @@ const confirmDialog = reactive({
 })
 
 const user = computed(() => auth.user || {})
+const provinceList = provinceOptions()
+const addressCityList = computed(() => cityOptionsForProvince(addressForm.province))
 const dirty = computed(() => {
   return (
     form.nickname !== (user.value.nickname || '') ||
@@ -298,10 +319,11 @@ function maskEmail(value) {
 }
 
 function addressLine(address) {
-  return [address.province, address.city, address.district, address.detail].filter(Boolean).join(' ')
+  return formatAddressLine(address)
 }
 
 function resetAddressForm() {
+  editingAddressId.value = null
   Object.assign(addressForm, {
     receiver_name: '',
     receiver_phone: '',
@@ -309,7 +331,12 @@ function resetAddressForm() {
     city: '',
     district: '',
     detail: '',
+    is_default: false,
   })
+}
+
+function onAddressProvinceChange() {
+  addressForm.city = ''
 }
 
 function setMessage(text, type = 'info') {
@@ -525,6 +552,26 @@ function addressFormWarning() {
   return ''
 }
 
+function editAddress(address) {
+  const normalized = normalizeAddressRegion(address)
+  Object.assign(addressForm, {
+    receiver_name: normalized.receiver_name || '',
+    receiver_phone: normalized.receiver_phone || '',
+    province: normalized.province || '',
+    city: normalized.city || '',
+    district: normalized.district || '',
+    detail: normalized.detail || '',
+    is_default: Boolean(normalized.is_default),
+  })
+  editingAddressId.value = address.id
+  clearMessage()
+}
+
+function cancelAddressEdit() {
+  resetAddressForm()
+  clearMessage()
+}
+
 async function addAddress() {
   const warning = addressFormWarning()
   if (warning) {
@@ -534,15 +581,19 @@ async function addAddress() {
   saving.value = true
   clearMessage()
   try {
-    const address = await createAddress({
+    const wasEditing = Boolean(editingAddressId.value)
+    const payload = {
       ...addressForm,
-      is_default: addresses.value.length === 0,
-    })
+      is_default: wasEditing ? addressForm.is_default : addresses.value.length === 0,
+    }
+    const address = wasEditing
+      ? await updateAddress(editingAddressId.value, payload)
+      : await createAddress(payload)
     addresses.value = [address, ...addresses.value.filter((item) => item.id !== address.id)]
     resetAddressForm()
-    setMessage('地址已添加')
+    setMessage(wasEditing ? '地址已保存' : '地址已添加')
   } catch (error) {
-    setMessage(apiErrorMessage(error, '地址添加失败'), 'error')
+    setMessage(apiErrorMessage(error, editingAddressId.value ? '地址保存失败' : '地址添加失败'), 'error')
   } finally {
     saving.value = false
   }
@@ -562,6 +613,7 @@ async function removeAddress(addressId) {
   try {
     await deleteAddress(addressId)
     addresses.value = addresses.value.filter((item) => item.id !== addressId)
+    if (editingAddressId.value === addressId) resetAddressForm()
     setMessage('地址已删除')
   } catch (error) {
     setMessage(apiErrorMessage(error, '地址删除失败'), 'error')

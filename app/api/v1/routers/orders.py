@@ -166,6 +166,12 @@ def create_review(
             images_json=payload.images_json,
         )
         db.commit()
+        try:
+            from app.services.search.service import upsert_product_search_document
+
+            upsert_product_search_document(db, review.spu_id)
+        except Exception:
+            pass
         return review
     except Exception as exc:
         db.rollback()

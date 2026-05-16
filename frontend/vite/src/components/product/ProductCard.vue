@@ -19,6 +19,7 @@
           <b :class="ratingToneClass(product.average_rating)">{{ formatRating(product.average_rating) }}</b>
           <span>★</span>
         </span>
+        <span v-else class="rating-chip rating-chip--empty">暂无评价</span>
       </div>
       <p>{{ product.description || '商家暂未填写详细描述。' }}</p>
       <div class="product-card__merchant">

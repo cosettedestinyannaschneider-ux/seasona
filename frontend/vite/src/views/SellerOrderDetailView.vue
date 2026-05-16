@@ -119,6 +119,7 @@ import { useDelayedBusy } from '../composables/useDelayedBusy'
 import { useAuthStore } from '../stores/auth'
 import { orderStatusClass, orderStatusText, refundStatusText } from '../utils/orderDisplay'
 import { formatSkuDisplay } from '../utils/sku'
+import { formatAddressLine } from '../utils/address'
 
 const route = useRoute()
 const router = useRouter()
@@ -134,7 +135,7 @@ const showLoading = useDelayedBusy(loading)
 const canShipOrder = computed(() => order.value?.status === 'PAID' && !order.value?.is_shipped)
 const receiverAddress = computed(() => {
   const receiver = order.value?.receiver_snapshot_json || {}
-  return [receiver.province, receiver.city, receiver.district, receiver.detail].filter(Boolean).join(' ')
+  return formatAddressLine(receiver)
 })
 
 function clearMessage() {

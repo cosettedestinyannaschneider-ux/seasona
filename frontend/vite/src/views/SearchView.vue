@@ -65,6 +65,13 @@
             </button>
           </div>
         </section>
+
+        <section class="filter-section filter-section--stock">
+          <button class="stock-toggle" type="button" :class="{ active: search.inStockOnly }" @click="toggleInStockOnly">
+            <span>只看有货</span>
+            <i aria-hidden="true"></i>
+          </button>
+        </section>
       </aside>
 
       <div class="search-results">
@@ -144,6 +151,11 @@ function setCategory(id) {
 
 function setSort(value) {
   search.sort = value
+  runSearch()
+}
+
+function toggleInStockOnly() {
+  search.inStockOnly = !search.inStockOnly
   runSearch()
 }
 

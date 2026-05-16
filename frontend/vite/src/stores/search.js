@@ -6,6 +6,7 @@ export const useSearchStore = defineStore('search', {
     query: '',
     categoryId: null,
     sort: 'relevance',
+    inStockOnly: false,
     origin: '',
     items: [],
     total: 0,
@@ -20,6 +21,7 @@ export const useSearchStore = defineStore('search', {
         const response = await searchProducts({
           q: this.query,
           category_id: this.categoryId || undefined,
+          in_stock_only: this.inStockOnly || undefined,
           sort_by: this.sort || 'relevance',
           page: 1,
           page_size: 20,

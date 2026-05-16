@@ -33,6 +33,7 @@
             <div>
               <strong>{{ item.product_name_snapshot }}</strong>
               <span>{{ itemSku(item) }}</span>
+              <small>购买数量：{{ item.quantity }} 件</small>
             </div>
             <b>￥{{ money(item.total_amount) }}</b>
             <button
@@ -89,7 +90,7 @@
         <div class="order-block">
           <h2>收货信息</h2>
           <p>{{ receiver.receiver_name }} {{ receiver.receiver_phone }}</p>
-          <p>{{ receiver.province }} {{ receiver.city }} {{ receiver.district }} {{ receiver.detail }}</p>
+          <p>{{ receiverLine }}</p>
         </div>
       </aside>
     </section>
@@ -118,6 +119,7 @@ import { apiErrorMessage } from '../api/http'
 import { useDelayedBusy } from '../composables/useDelayedBusy'
 import { orderStatusClass, orderStatusText, refundStatusText } from '../utils/orderDisplay'
 import { formatSkuDisplay } from '../utils/sku'
+import { formatAddressLine } from '../utils/address'
 
 const route = useRoute()
 const router = useRouter()
@@ -138,6 +140,7 @@ const loading = ref(false)
 const showLoading = useDelayedBusy(loading)
 
 const receiver = computed(() => order.value?.receiver_snapshot_json || {})
+const receiverLine = computed(() => formatAddressLine(receiver.value))
 const blockingAfterSale = computed(() => ['pending', 'approved', 'disputed'].includes(order.value?.active_refund_status))
 const canCancel = computed(() => {
   return order.value && (order.value.status === 'WAIT_PAY' || (order.value.status === 'PAID' && !order.value.is_shipped))

@@ -123,6 +123,10 @@ class AddressCreate(AddressBase):
     is_default: bool = False
 
 
+class AddressUpdate(AddressBase):
+    is_default: bool = False
+
+
 class AddressPublic(AddressBase):
     model_config = ConfigDict(from_attributes=True)
 
