@@ -1469,10 +1469,37 @@ def _order_summaries_by_order_ids(db: Any, order_ids: Sequence[int]) -> dict[int
     }
 
 
+def _reviewable_counts_by_order_ids(db: Any, order_ids: Sequence[int]) -> dict[int, int]:
+    if not order_ids:
+        return {}
+    items = db.execute(
+        select(OrderItem.order_id, OrderItem.spu_id).where(OrderItem.order_id.in_(order_ids))
+    ).all()
+    spu_by_order: dict[int, set[int]] = defaultdict(set)
+    for row in items:
+        spu_by_order[row.order_id].add(row.spu_id)
+    reviews = db.execute(
+        select(ProductReview.order_id, ProductReview.spu_id).where(
+            ProductReview.order_id.in_(order_ids),
+            ProductReview.status == ReviewStatus.VISIBLE,
+            ProductReview.deleted_at.is_(None),
+        )
+    ).all()
+    reviewed_by_order: dict[int, set[int]] = defaultdict(set)
+    for row in reviews:
+        if row.order_id is not None:
+            reviewed_by_order[row.order_id].add(row.spu_id)
+    return {
+        order_id: max(0, len(spu_ids - reviewed_by_order.get(order_id, set())))
+        for order_id, spu_ids in spu_by_order.items()
+    }
+
+
 def _order_to_public(
     row: Any,
     active_refund: RefundApplication | None = None,
     summary: dict[str, Any] | None = None,
+    reviewable_item_count: int = 0,
 ) -> OrderPublic:
     order: Order = row.Order
     summary = summary or {}
@@ -1482,6 +1509,7 @@ def _order_to_public(
         payment_id=order.payment_id,
         primary_product_name=summary.get("primary_product_name"),
         item_count=summary.get("item_count", 0),
+        reviewable_item_count=reviewable_item_count if order.status == OrderStatus.COMPLETED else 0,
         buyer_id=order.buyer_id,
         buyer_username=getattr(row, "buyer_username", None),
         seller_id=order.seller_id,
@@ -1622,12 +1650,14 @@ def list_orders(
     order_ids = [row.Order.id for row in rows]
     active_refunds = _active_refunds_by_order_ids(db, order_ids)
     order_summaries = _order_summaries_by_order_ids(db, order_ids)
+    reviewable_counts = _reviewable_counts_by_order_ids(db, order_ids)
     return OrderListResponse(
         items=[
             _order_to_public(
                 row,
                 active_refunds.get(row.Order.id),
                 order_summaries.get(row.Order.id),
+                reviewable_counts.get(row.Order.id, 0),
             )
             for row in rows
         ],

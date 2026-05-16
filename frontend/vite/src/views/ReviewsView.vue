@@ -220,7 +220,7 @@ function latestReviewTime(items) {
 }
 
 function groupSummary(group) {
-  return `${group.reviews.length} 条评价${group.latestReviewTime ? ` · 最近 ${group.latestReviewTime}` : ''}`
+  return group.latestReviewTime ? `最近 ${group.latestReviewTime}` : '暂无时间记录'
 }
 
 function openGroup(group) {

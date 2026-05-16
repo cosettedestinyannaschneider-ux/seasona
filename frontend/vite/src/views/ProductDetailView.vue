@@ -331,7 +331,7 @@ const writeReviewLink = computed(() => ({
 const hasReviewableOrderItem = computed(() =>
   Boolean(reviewEligibility.value?.reviewable_items?.some((item) => !item.already_reviewed)),
 )
-const canWriteReview = computed(() => hasReviewableOrderItem.value)
+const canWriteReview = computed(() => Boolean(reviewEligibility.value?.can_write_free_review))
 const reviewTotalLabel = computed(() => (reviewTotal.value > 9999 ? '9999+' : String(reviewTotal.value).padStart(1, '0')))
 const productImages = computed(() => {
   const item = product.value

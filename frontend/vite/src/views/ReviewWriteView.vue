@@ -14,27 +14,13 @@
         <span class="section-kicker">Write Review</span>
         <h1>为 {{ product.name }} 写评论</h1>
         <p v-if="selectedOrderItem">本次评价关联订单 {{ selectedOrderItem.order_no }}，共 {{ selectedOrderItem.quantity }} 件</p>
-        <p v-else>请选择一笔可评价的已完成订单后发布评论。</p>
+        <p v-else>这是一条商品评论，不绑定具体订单。</p>
       </div>
     </div>
 
     <div v-if="showLoading" class="loading-hint loading-hint--block">正在加载评论编辑器</div>
 
     <section v-else-if="product" class="review-compose-panel">
-      <div v-if="eligibleOrderItems.length && !lockedOrderItemId && !lockedOrderId" class="review-compose-field">
-        <label>关联订单</label>
-        <select v-model="selectedOrderItemId">
-          <option
-            v-for="item in eligibleOrderItems"
-            :key="item.order_item_id"
-            :value="String(item.order_item_id)"
-            :disabled="item.already_reviewed"
-          >
-            {{ item.order_no }} · 共 {{ item.quantity }} 件{{ item.already_reviewed ? '（已评价）' : '' }}
-          </option>
-        </select>
-      </div>
-
       <div class="rating-row review-compose-rating">
         <button
           v-for="score in 5"
@@ -144,6 +130,7 @@ const lockedOrderId = computed(() => {
   const value = Array.isArray(route.query.order_id) ? route.query.order_id[0] : route.query.order_id
   return value ? String(value) : ''
 })
+const isOrderBoundReview = computed(() => Boolean(lockedOrderItemId.value || lockedOrderId.value))
 const selectedOrderItem = computed(() => {
   if (selectedOrderItemId.value) {
     return eligibleOrderItems.value.find((item) => String(item.order_item_id) === String(selectedOrderItemId.value)) || null
@@ -154,7 +141,10 @@ const selectedOrderItem = computed(() => {
   return null
 })
 const eligibleOrderItems = computed(() => eligibility.value?.reviewable_items || [])
-const hasReviewTarget = computed(() => Boolean(selectedOrderItem.value?.order_id))
+const hasReviewTarget = computed(() => {
+  if (isOrderBoundReview.value) return Boolean(selectedOrderItem.value?.order_id && !selectedOrderItem.value?.already_reviewed)
+  return Boolean(eligibility.value?.can_write_free_review)
+})
 
 function queryValue(name, fallback = '') {
   const value = route.query[name]
@@ -214,6 +204,12 @@ function clearMessage() {
   message.value = ''
 }
 
+function unavailableReviewMessage() {
+  if (isOrderBoundReview.value && selectedOrderItem.value?.already_reviewed) return '这笔订单已经评价过了'
+  if (isOrderBoundReview.value) return '关联订单不可评价，请返回订单重新进入'
+  return eligibility.value?.has_completed_purchase ? '你已经发表过该商品的商品评论' : '购买并完成订单后才能评价该商品'
+}
+
 function scheduleDraftSave() {
   if (!dirty.value || publishing.value || !product.value) return
   window.clearTimeout(autoSaveTimer)
@@ -225,7 +221,7 @@ function scheduleDraftSave() {
 async function saveDraftNow(silent = false) {
   if (!product.value || saving.value) return false
   if (!hasReviewTarget.value) {
-    if (!silent) setMessage('请选择一笔可评价的已完成订单后再保存草稿', 'error')
+    if (!silent) setMessage(unavailableReviewMessage(), 'error')
     return false
   }
   saving.value = true
@@ -248,8 +244,12 @@ async function saveDraftNow(silent = false) {
 }
 
 function buildPayload(allowEmptyRating = false) {
-  const orderId = selectedOrderItem.value?.order_id || (lockedOrderId.value ? Number(lockedOrderId.value) : null)
-  const orderItemId = selectedOrderItem.value?.order_item_id || (selectedOrderItemId.value ? Number(selectedOrderItemId.value) : null)
+  const orderId = isOrderBoundReview.value
+    ? selectedOrderItem.value?.order_id || (lockedOrderId.value ? Number(lockedOrderId.value) : null)
+    : null
+  const orderItemId = isOrderBoundReview.value
+    ? selectedOrderItem.value?.order_item_id || (selectedOrderItemId.value ? Number(selectedOrderItemId.value) : null)
+    : null
   return {
     order_id: orderId || null,
     order_item_id: orderItemId || null,
@@ -261,7 +261,7 @@ function buildPayload(allowEmptyRating = false) {
 
 async function publishReview() {
   if (!hasReviewTarget.value) {
-    setMessage('请选择一笔可评价的已完成订单后再发布评论', 'error')
+    setMessage(unavailableReviewMessage(), 'error')
     return
   }
   if (!form.rating) {
@@ -376,27 +376,29 @@ onMounted(async () => {
     try {
       product.value = await getProductDetail(route.params.id)
     } catch (error) {
-      if (!lockedOrderItemId.value) throw error
+      if (!isOrderBoundReview.value) throw error
       product.value = fallbackProductFromQuery()
     }
     try {
       eligibility.value = await getProductReviewEligibility(product.value.spu_id)
     } catch (error) {
-      if (!lockedOrderItemId.value) throw error
+      if (!isOrderBoundReview.value) throw error
       eligibility.value = fallbackEligibilityFromQuery()
     }
     const lockedOrderItem = lockedOrderId.value
       ? eligibleOrderItems.value.find((item) => String(item.order_id) === lockedOrderId.value)
       : null
     selectedOrderItemId.value = lockedOrderItemId.value || (lockedOrderItem?.order_item_id ? String(lockedOrderItem.order_item_id) : '')
-    if (!selectedOrderItemId.value) {
-      const firstReviewableItem = eligibleOrderItems.value.find((item) => !item.already_reviewed)
-      if (firstReviewableItem) {
-        selectedOrderItemId.value = String(firstReviewableItem.order_item_id)
-      }
+    if (!hasReviewTarget.value) {
+      setMessage(unavailableReviewMessage(), 'error')
+      return
     }
     const draftOrderId = selectedOrderItem.value?.order_id || (lockedOrderId.value ? Number(lockedOrderId.value) : null)
-    const draft = await getProductReviewDraft(product.value.spu_id, selectedOrderItemId.value || null, draftOrderId)
+    const draft = await getProductReviewDraft(
+      product.value.spu_id,
+      isOrderBoundReview.value ? selectedOrderItemId.value || null : null,
+      isOrderBoundReview.value ? draftOrderId : null,
+    )
     if (draft) {
       if (draft.product_name) {
         product.value = {
@@ -410,9 +412,6 @@ onMounted(async () => {
       form.images_json = draft.images_json || []
       dirty.value = false
       savedOnce.value = true
-    }
-    if (!selectedOrderItemId.value) {
-      setMessage(eligibility.value.has_completed_purchase ? '你已经发表过该商品的商品评论' : '购买并完成订单后才能评价该商品', 'error')
     }
   } catch (error) {
     setMessage(apiErrorMessage(error, '评论编辑器加载失败'), 'error')

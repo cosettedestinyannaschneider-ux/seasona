@@ -69,6 +69,7 @@ class OrderPublic(BaseModel):
     payment_id: int | None = None
     primary_product_name: str | None = None
     item_count: int = 0
+    reviewable_item_count: int = 0
     buyer_id: int
     buyer_username: str | None = None
     seller_id: int

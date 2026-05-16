@@ -109,7 +109,7 @@ const totalPages = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)
 const hasReviewableOrderItem = computed(() =>
   Boolean(reviewEligibility.value?.reviewable_items?.some((item) => !item.already_reviewed)),
 )
-const canWriteReview = computed(() => hasReviewableOrderItem.value)
+const canWriteReview = computed(() => Boolean(reviewEligibility.value?.can_write_free_review))
 const reviewTotalText = computed(() => (total.value > 9999 ? '9999+' : total.value))
 
 function goBack() {

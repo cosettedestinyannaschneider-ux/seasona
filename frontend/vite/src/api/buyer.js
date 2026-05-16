@@ -25,6 +25,7 @@ export function normalizeOrder(order = {}) {
     ...order,
     payment_id: order.payment_id == null ? null : Number(order.payment_id),
     item_count: Number(order.item_count ?? order.items?.length ?? 0),
+    reviewable_item_count: Number(order.reviewable_item_count ?? 0),
     total_amount: normalizeMoney(order.total_amount),
     freight_amount: normalizeMoney(order.freight_amount),
     payable_amount: normalizeMoney(order.payable_amount),

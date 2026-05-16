@@ -21,7 +21,7 @@
           </div>
           <div class="review-detail-card__tools">
             <span class="review-stars">{{ stars(review.rating) }}</span>
-            <button v-if="review.can_delete" class="seller-ghost-button" type="button" @click="deleteMainReview">
+            <button v-if="review.can_delete" class="seller-ghost-button" type="button" @click="requestDeleteReview">
               删除
             </button>
           </div>
@@ -74,7 +74,7 @@
               v-if="comment.can_delete"
               class="seller-ghost-button"
               type="button"
-              @click.stop="deleteCommentNow(comment)"
+              @click.stop="requestDeleteComment(comment)"
             >
               删除
             </button>
@@ -96,11 +96,35 @@
         </div>
       </form>
     </template>
+
+    <div v-if="deleteConfirm.visible" class="confirm-overlay">
+      <div class="confirm-panel">
+        <h2>{{ deleteConfirm.kind === 'review' ? '删除这条评论？' : '删除这条回复？' }}</h2>
+        <p>
+          {{
+            deleteConfirm.kind === 'review'
+              ? '删除主评论后，这条评论下的回复也将不再展示。'
+              : '删除后这条回复将不再展示。'
+          }}
+        </p>
+        <div class="confirm-actions">
+          <button class="seller-ghost-button" type="button" @click="cancelDelete">取消</button>
+          <button
+            class="seller-ghost-button seller-ghost-button--danger"
+            type="button"
+            :disabled="deleting"
+            @click="confirmDelete"
+          >
+            确认删除
+          </button>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Heart } from 'lucide-vue-next'
 import { apiErrorMessage, mediaUrl } from '../api/http'
@@ -119,6 +143,12 @@ const message = ref('')
 const messageType = ref('info')
 const replyContent = ref('')
 const replyTarget = ref(null)
+const deleting = ref(false)
+const deleteConfirm = reactive({
+  visible: false,
+  kind: '',
+  comment: null,
+})
 const showLoading = useDelayedBusy(loading)
 
 const canReply = computed(() => auth.isAuthenticated && auth.role === 'buyer')
@@ -206,24 +236,66 @@ async function submitReply() {
   }
 }
 
+function requestDeleteReview() {
+  deleteConfirm.visible = true
+  deleteConfirm.kind = 'review'
+  deleteConfirm.comment = null
+}
+
+function requestDeleteComment(comment) {
+  deleteConfirm.visible = true
+  deleteConfirm.kind = 'comment'
+  deleteConfirm.comment = comment
+}
+
+function cancelDelete() {
+  if (deleting.value) return
+  resetDeleteConfirm()
+}
+
+function resetDeleteConfirm() {
+  deleteConfirm.visible = false
+  deleteConfirm.kind = ''
+  deleteConfirm.comment = null
+}
+
+async function confirmDelete() {
+  if (deleting.value) return
+  if (deleteConfirm.kind === 'review') {
+    await deleteMainReview()
+    return
+  }
+  if (deleteConfirm.kind === 'comment' && deleteConfirm.comment) {
+    await deleteCommentNow(deleteConfirm.comment)
+  }
+}
+
 async function deleteMainReview() {
-  if (!window.confirm('确认删除这条评论？删除后相关回复将不再展示。')) return
+  deleting.value = true
   try {
     await deleteReview(review.value.id)
+    resetDeleteConfirm()
     router.replace(safeBackTarget())
   } catch (error) {
     message.value = apiErrorMessage(error, '评论删除失败')
     messageType.value = 'error'
+    resetDeleteConfirm()
+  } finally {
+    deleting.value = false
   }
 }
 
 async function deleteCommentNow(comment) {
-  if (!window.confirm('确认删除这条回复？')) return
+  deleting.value = true
   try {
     review.value = await deleteReviewComment(comment.id)
+    resetDeleteConfirm()
   } catch (error) {
     message.value = apiErrorMessage(error, '回复删除失败')
     messageType.value = 'error'
+    resetDeleteConfirm()
+  } finally {
+    deleting.value = false
   }
 }
 

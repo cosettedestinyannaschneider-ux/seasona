@@ -47,7 +47,7 @@
           </div>
           <div class="order-card__bottom">
             <span>合计 ￥{{ money(order.payable_amount) }}</span>
-            <RouterLink v-if="order.status === 'COMPLETED'" class="review-shortcut" :to="orderDetailLink(order, { review: 'first' })">
+            <RouterLink v-if="canReviewOrder(order)" class="review-shortcut" :to="orderDetailLink(order, { review: 'first' })">
               写评价
             </RouterLink>
           </div>
@@ -127,6 +127,10 @@ function orderDetailLink(order, extraQuery = {}) {
     params: { id: order.id },
     query: { from: route.fullPath, ...extraQuery },
   }
+}
+
+function canReviewOrder(order) {
+  return order.status === 'COMPLETED' && Number(order.reviewable_item_count || 0) > 0
 }
 
 async function loadOrders() {
