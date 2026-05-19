@@ -159,6 +159,14 @@ cd frontend/vite
 npm run build
 ```
 
+## 测试
+
+后端测试存放在 `test/` 目录中。完整的测试指南请参阅 [docs/testing.md]。
+
+* 使用 `requirements.txt` 安装运行该应用程序所需的运行时依赖。
+* 对于本地开发和测试，请使用 `requirements-dev.txt`；它包含了运行时依赖以及 pytest、代码覆盖率（coverage）和测试数据工具。
+* 运行 `python -m pytest` 执行默认的测试套件。除非配置了 `SEASONA_TEST_DATABASE_URL`，否则将跳过 PostgreSQL 集成测试。
+* 运行 `python -m pytest --cov=app --cov-report=term-missing --cov-report=html` 生成测试覆盖率报告。`htmlcov/` 是本地输出目录，会被 Git 忽略。
 ## 注意事项
 
 - `.env`、上传文件、依赖目录和构建产物不会进入 Git。

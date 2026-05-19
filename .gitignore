@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 
+# Local contributor/agent notes
+AGENTS.md
+
 # Python
 .venv/
 venv/
@@ -11,9 +14,13 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+pytest-cache-files-*/
 .mypy_cache/
 .ruff_cache/
 .coverage
+.coverage.*
+coverage.xml
+junit*.xml
 htmlcov/
 
 # Logs and local runtime files
@@ -21,11 +28,17 @@ htmlcov/
 *.pid
 *.sqlite
 *.sqlite3
+*.tmp
+*.bak
 
 # Uploaded media is runtime data; keep only the placeholder directory marker.
 media/*
 !media/.gitkeep
 test/media/
+
+# Test reports and local test artifacts
+test-results/
+reports/
 
 # Frontend
 frontend/vite/node_modules/
