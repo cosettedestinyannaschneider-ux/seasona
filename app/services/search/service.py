@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Sequence
 from decimal import Decimal
 from typing import Any
@@ -13,6 +14,7 @@ from sqlalchemy import case, cast, func, select
 from sqlalchemy.types import DateTime
 
 from app.core.config import get_settings
+from app.core.redis import get_redis_client
 from app.models.enums import MerchantAuditStatus, ProductStatus, ReviewStatus, UserStatus
 from app.models.product import (
     ProductCategory,
@@ -33,6 +35,7 @@ from app.schemas.search import (
 
 
 SEARCH_INDEX_NAME = "seasona_products"
+logger = logging.getLogger(__name__)
 MEILI_REQUEST_TIMEOUT_SECONDS = 8
 MEILI_SEARCHABLE_ATTRIBUTES = [
     "name",
@@ -501,14 +504,14 @@ def upsert_product_search_document_for_review_if_due(
     *,
     cooldown_seconds: int = 300,
 ) -> bool:
-    settings = get_settings()
-    if not settings.redis_url:
+    try:
+        client = get_redis_client()
+    except Exception:
+        return upsert_product_search_document(db, spu_id)
+    if client is None:
         return upsert_product_search_document(db, spu_id)
 
     try:
-        import redis  # type: ignore
-
-        client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
         key = f"seasona:search:review-refresh:{spu_id}"
         acquired = client.set(key, "1", nx=True, ex=cooldown_seconds)
     except Exception:
@@ -517,6 +520,28 @@ def upsert_product_search_document_for_review_if_due(
     if not acquired:
         return False
     return upsert_product_search_document(db, spu_id)
+
+
+def refresh_product_search_document_for_review_if_due(
+    spu_id: int,
+    *,
+    cooldown_seconds: int = 300,
+) -> bool:
+    try:
+        from app.db.session import get_session_factory
+
+        db = get_session_factory()()
+        try:
+            return upsert_product_search_document_for_review_if_due(
+                db,
+                spu_id,
+                cooldown_seconds=cooldown_seconds,
+            )
+        finally:
+            db.close()
+    except Exception:
+        logger.warning("Search document refresh after review failed.", exc_info=True)
+        return False
 
 
 def sync_merchant_search_documents(db: Any, merchant_id: int) -> int:

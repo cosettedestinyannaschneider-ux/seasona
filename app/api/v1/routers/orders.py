@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 
 from app.core.dependencies import require_roles
 from app.db.session import get_db
@@ -247,6 +247,7 @@ def list_my_review_drafts(
 @router.post("/reviews", response_model=ReviewPublic, status_code=status.HTTP_201_CREATED)
 def create_review(
     payload: ReviewCreate,
+    background_tasks: BackgroundTasks,
     current_buyer: Any = Depends(require_roles(UserRole.BUYER)),
     db: Any = Depends(get_db),
 ) -> ReviewPublic:
@@ -265,12 +266,9 @@ def create_review(
             images_json=payload.images_json,
         )
         db.commit()
-        try:
-            from app.services.search.service import upsert_product_search_document_for_review_if_due
+        from app.services.search.service import refresh_product_search_document_for_review_if_due
 
-            upsert_product_search_document_for_review_if_due(db, review.spu_id)
-        except Exception:
-            pass
+        background_tasks.add_task(refresh_product_search_document_for_review_if_due, review.spu_id)
         return review
     except Exception as exc:
         db.rollback()

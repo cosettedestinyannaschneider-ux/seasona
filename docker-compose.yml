@@ -5,6 +5,7 @@ services:
       - .env
     environment:
       SEASONA_MEDIA_ROOT: /data/media
+      SEASONA_WEB_CONCURRENCY: ${SEASONA_WEB_CONCURRENCY:-2}
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:

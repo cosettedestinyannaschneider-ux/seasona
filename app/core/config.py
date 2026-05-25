@@ -37,6 +37,13 @@ def _env_float(name: str, default: float) -> float:
     return float(value) if value else default
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    value = _env(name)
+    if not value:
+        return default
+    return value.lower() in {"1", "true", "yes", "on"}
+
+
 def _env_csv(name: str) -> list[str]:
     value = _env(name)
     if not value:
@@ -51,7 +58,14 @@ class Settings(BaseModel):
     api_v1_prefix: str = "/api/v1"
 
     database_url: str = ""
+    database_pool_size: int = 5
+    database_max_overflow: int = 5
+    database_pool_timeout_seconds: int = 30
+    database_pool_recycle_seconds: int = 1800
     redis_url: str = ""
+    redis_socket_timeout_seconds: float = 1.0
+    redis_socket_connect_timeout_seconds: float = 1.0
+    redis_health_check_interval_seconds: int = 30
     meilisearch_url: str = ""
     meilisearch_api_key: str = ""
     meilisearch_index: str = "seasona_products"
@@ -66,6 +80,13 @@ class Settings(BaseModel):
     jwt_audience: str = "seasona-users"
     access_token_expire_minutes: int = 60
     password_reset_token_expire_minutes: int = 15
+    auth_rate_limit_enabled: bool = True
+    auth_rate_limit_window_seconds: int = 10
+    auth_login_ip_limit: int = 300
+    auth_login_identifier_limit: int = 100
+    auth_register_ip_limit: int = 100
+    auth_password_reset_ip_limit: int = 100
+    auth_password_reset_identifier_limit: int = 50
     argon2_time_cost: int = 2
     argon2_memory_cost: int = 19456
     argon2_parallelism: int = 1
@@ -95,7 +116,17 @@ def get_settings() -> Settings:
         environment=_env("SEASONA_ENVIRONMENT", "local"),
         api_v1_prefix=_env("SEASONA_API_V1_PREFIX", "/api/v1"),
         database_url=_env("SEASONA_DATABASE_URL"),
+        database_pool_size=_env_int("SEASONA_DB_POOL_SIZE", 5),
+        database_max_overflow=_env_int("SEASONA_DB_MAX_OVERFLOW", 5),
+        database_pool_timeout_seconds=_env_int("SEASONA_DB_POOL_TIMEOUT_SECONDS", 30),
+        database_pool_recycle_seconds=_env_int("SEASONA_DB_POOL_RECYCLE_SECONDS", 1800),
         redis_url=_env("SEASONA_REDIS_URL"),
+        redis_socket_timeout_seconds=_env_float("SEASONA_REDIS_SOCKET_TIMEOUT_SECONDS", 1.0),
+        redis_socket_connect_timeout_seconds=_env_float(
+            "SEASONA_REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS",
+            1.0,
+        ),
+        redis_health_check_interval_seconds=_env_int("SEASONA_REDIS_HEALTH_CHECK_INTERVAL_SECONDS", 30),
         meilisearch_url=_env("SEASONA_MEILISEARCH_URL"),
         meilisearch_api_key=_env("SEASONA_MEILISEARCH_API_KEY"),
         meilisearch_index=_env("SEASONA_MEILISEARCH_INDEX", "seasona_products"),
@@ -118,6 +149,16 @@ def get_settings() -> Settings:
         ),
         password_reset_token_expire_minutes=_env_int(
             "SEASONA_PASSWORD_RESET_TOKEN_EXPIRE_MINUTES", 15
+        ),
+        auth_rate_limit_enabled=_env_bool("SEASONA_AUTH_RATE_LIMIT_ENABLED", True),
+        auth_rate_limit_window_seconds=_env_int("SEASONA_AUTH_RATE_LIMIT_WINDOW_SECONDS", 10),
+        auth_login_ip_limit=_env_int("SEASONA_AUTH_LOGIN_IP_LIMIT", 300),
+        auth_login_identifier_limit=_env_int("SEASONA_AUTH_LOGIN_IDENTIFIER_LIMIT", 100),
+        auth_register_ip_limit=_env_int("SEASONA_AUTH_REGISTER_IP_LIMIT", 100),
+        auth_password_reset_ip_limit=_env_int("SEASONA_AUTH_PASSWORD_RESET_IP_LIMIT", 100),
+        auth_password_reset_identifier_limit=_env_int(
+            "SEASONA_AUTH_PASSWORD_RESET_IDENTIFIER_LIMIT",
+            50,
         ),
         argon2_time_cost=_env_int("SEASONA_ARGON2_TIME_COST", 2),
         argon2_memory_cost=_env_int("SEASONA_ARGON2_MEMORY_COST", 19456),

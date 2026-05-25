@@ -15,9 +15,11 @@ os.environ.setdefault("SEASONA_ARGON2_TIME_COST", "1")
 os.environ.setdefault("SEASONA_ARGON2_MEMORY_COST", "8192")
 os.environ.setdefault("SEASONA_ARGON2_PARALLELISM", "1")
 os.environ.setdefault("SEASONA_MEDIA_ROOT", str(Path.cwd() / "test" / "media"))
+os.environ.setdefault("SEASONA_REDIS_URL", "")
 
 from app.core.cache import InMemoryTokenBlocklistStore, get_token_blocklist_store
 from app.core.config import Settings, get_settings
+from app.core.redis import get_redis_client
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -114,6 +116,8 @@ def app_client(db_session: Session, test_settings: Settings):
 def isolate_settings_cache():
     get_settings.cache_clear()
     get_token_blocklist_store.cache_clear()
+    get_redis_client.cache_clear()
     yield
     get_settings.cache_clear()
     get_token_blocklist_store.cache_clear()
+    get_redis_client.cache_clear()

@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 
 from app.core.dependencies import get_optional_current_user, require_roles
@@ -102,6 +102,7 @@ def get_review_eligibility(
 def create_product_review(
     spu_id: int,
     payload: ReviewCreate,
+    background_tasks: BackgroundTasks,
     current_buyer: Any = Depends(require_roles(UserRole.BUYER)),
     db: Any = Depends(get_db),
 ) -> ReviewPublic:
@@ -119,12 +120,9 @@ def create_product_review(
             images_json=payload.images_json,
         )
         db.commit()
-        try:
-            from app.services.search.service import upsert_product_search_document_for_review_if_due
+        from app.services.search.service import refresh_product_search_document_for_review_if_due
 
-            upsert_product_search_document_for_review_if_due(db, review.spu_id)
-        except Exception:
-            pass
+        background_tasks.add_task(refresh_product_search_document_for_review_if_due, review.spu_id)
         return review
     except IntegrityError as exc:
         db.rollback()

@@ -25,7 +25,7 @@
 
 1. 复制 `.env.example` 为 `.env`。
 2. 准备Python(>=3.14),PostgresSQL(>=18.3),Redis(>=8.6.2),Meilisearch环境，或者使用docker进行配置，如果需要生产部署，还需要准备nginx(>=1.31.0)，
-3. 填写 PostgreSQL、Redis、Meilisearch、JWT、LLM、Embedding 等配置。
+3. 填写 PostgreSQL、Redis、Meilisearch、JWT、LLM、Embedding 等配置。Redis 用于 token 黑名单、认证入口防刷和评价触发的搜索刷新节流。
 4. 根据 `docs/schema.sql` 在 PostgreSQL 中手动建表。
 5. 手动准备至少一个管理员账号。管理员不开放公网注册。
 6. 安装后端依赖：
@@ -81,6 +81,8 @@ Vite 开发环境会把后端 `/api` 和 `/media` 代理到 `http://127.0.0.1:80
 - `SEASONA_MEILISEARCH_API_KEY`
 - `SEASONA_JWT_SECRET_KEY`
 
+可按机器规格调整 `SEASONA_WEB_CONCURRENCY`。每个 worker 会维护自己的数据库连接池，连接池大小由 `SEASONA_DB_POOL_SIZE`、`SEASONA_DB_MAX_OVERFLOW`、`SEASONA_DB_POOL_TIMEOUT_SECONDS` 和 `SEASONA_DB_POOL_RECYCLE_SECONDS` 控制。
+
 生产构建前端：
 
 ```bash
@@ -102,6 +104,7 @@ Nginx 会从 `frontend/dist` 读取前端页面，从 `media/` 读取上传文�
 - Docker 中如设置了 `MEILI_MASTER_KEY`，`SEASONA_MEILISEARCH_API_KEY` 应填写同一个值。
 - 首页搜索和小拾食材匹配共用同一个商品索引。
 - 商品审核通过、下架、商家禁用等业务操作会同步刷新搜索派生数据。
+- 评价新增或删除后，搜索派生数据会通过后台任务刷新，并使用 Redis 冷却键避免高频重复刷新。
 - 如需手动重建索引，管理员可调用：`POST /api/v1/admin/search/reindex`。
 - FastAPI 不直接保存向量；Embedding 配置用于 Meilisearch REST embedder。
 
@@ -115,6 +118,8 @@ Nginx 会从 `frontend/dist` 读取前端页面，从 `media/` 读取上传文�
 - 登出：`POST /api/v1/auth/logout`
 
 买家、卖家登录支持用户名、手机号或邮箱。管理员只使用管理员用户名登录。密码使用 Argon2id 哈希，不保留旧哈希兼容路径。
+
+注册、登录和密码重置请求带有 Redis 固定窗口限流。课程小组测试阶段默认配置偏宽松：`SEASONA_AUTH_RATE_LIMIT_WINDOW_SECONDS=10`，登录 IP 上限为 300 次、注册 IP 上限为 100 次。后期要收紧防刷策略时，修改 `.env` 中的 `SEASONA_AUTH_*` 配置即可。
 
 ### 管理员密码哈希
 
@@ -161,12 +166,13 @@ npm run build
 
 ## 测试
 
-后端测试存放在 `test/` 目录中。完整的测试指南请参阅 [docs/testing.md]。
+后端测试存放在 `test/` 目录中。完整的测试指南请参阅 [docs/testing.md](docs/testing.md)。
 
 * 使用 `requirements.txt` 安装运行该应用程序所需的运行时依赖。
 * 对于本地开发和测试，请使用 `requirements-dev.txt`；它包含了运行时依赖以及 pytest、代码覆盖率（coverage）和测试数据工具。
 * 运行 `python -m pytest` 执行默认的测试套件。除非配置了 `SEASONA_TEST_DATABASE_URL`，否则将跳过 PostgreSQL 集成测试。
 * 运行 `python -m pytest --cov=app --cov-report=term-missing --cov-report=html` 生成测试覆盖率报告。`htmlcov/` 是本地输出目录，会被 Git 忽略。
+
 ## 注意事项
 
 - `.env`、上传文件、依赖目录和构建产物不会进入 Git。

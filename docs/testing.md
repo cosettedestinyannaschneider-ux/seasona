@@ -78,6 +78,8 @@ HTML 格式的报告将写入 `htmlcov/` 目录，并且会被 Git 忽略。
 
 `test/unit/` 包含不访问数据库或网络的快速测试。这些测试涵盖了模式验证（schema validation）、令牌/密码行为、搜索和 AI 解析辅助函数，以及确定性的服务辅助函数。
 
+认证限流、共享 Redis 客户端使用点和评价搜索刷新节流也应优先放在单元测试中，用 fake Redis 或 monkeypatch 验证行为，不依赖真实 Redis 服务。
+
 `test/integration/` 包含由 PostgreSQL 支持的集成测试，涉及身份验证、目录状态变更、钱包记账、订单状态转换、退款、争议和评论。外部的 Redis、Meilisearch 以及 LLM 调用均会被替换为内存存储或基于猴子补丁（monkeypatch）的伪造实现（fakes）。
 
 `test/final_acceptance_test.py` 保留为全环境验收脚本。在配置好 PostgreSQL、Redis、Meilisearch、文件上传以及可选的 AI 依赖之后，并在进行类似发布前的演示之前，请手动运行该脚本。

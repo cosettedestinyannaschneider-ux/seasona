@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, BackgroundTasks, Depends, status
 
 from app.core.dependencies import get_optional_current_user, require_roles
 from app.db.session import get_db
@@ -83,6 +83,7 @@ def create_comment(
 @router.delete("/{review_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_review(
     review_id: int,
+    background_tasks: BackgroundTasks,
     current_buyer: Any = Depends(require_roles(UserRole.BUYER)),
     db: Any = Depends(get_db),
 ) -> None:
@@ -91,12 +92,9 @@ def delete_review(
     try:
         spu_id = delete_product_review(db, current_buyer, review_id=review_id)
         db.commit()
-        try:
-            from app.services.search.service import upsert_product_search_document_for_review_if_due
+        from app.services.search.service import refresh_product_search_document_for_review_if_due
 
-            upsert_product_search_document_for_review_if_due(db, spu_id)
-        except Exception:
-            pass
+        background_tasks.add_task(refresh_product_search_document_for_review_if_due, spu_id)
     except Exception:
         db.rollback()
         raise

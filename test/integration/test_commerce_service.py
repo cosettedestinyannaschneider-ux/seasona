@@ -7,7 +7,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import select
 
-from app.models.enums import OrderStatus, RefundStatus, WalletBizType
+from app.models.enums import LedgerDirection, OrderStatus, PaymentStatus, RefundStatus, WalletBizType
 from app.models.order import Cart, CartItem, Order, RefundApplication, RefundDispute
 from app.models.wallet import WalletAccount, WalletLedger
 from app.services.commerce import service as commerce_service
@@ -74,6 +74,133 @@ def test_cart_order_payment_cancel_and_stock_release_flow(db_session) -> None:
     assert sku.stock_locked == 0
     assert wallet.available_balance == Decimal("20.00")
     assert wallet.frozen_balance == Decimal("0.00")
+
+
+def test_cart_checkout_splits_orders_across_merchants_and_settles_each_order_independently(db_session) -> None:
+    buyer = create_buyer(db_session)
+    seller_a = create_seller(db_session)
+    seller_b = create_seller(db_session)
+    _, sku_a = create_product(db_session, seller_a, stock=10, price="3.50", name="Cross Shop A")
+    _, sku_b = create_product(db_session, seller_b, stock=10, price="5.25", name="Cross Shop B")
+    cart = db_session.execute(select(Cart).where(Cart.buyer_id == buyer.id)).scalar_one()
+    db_session.add_all(
+        [
+            CartItem(cart_id=cart.id, sku_id=sku_a.id, quantity=2, selected=True),
+            CartItem(cart_id=cart.id, sku_id=sku_b.id, quantity=1, selected=True),
+        ]
+    )
+    db_session.flush()
+
+    orders, payment = commerce_service.create_orders_from_cart(
+        db_session,
+        buyer,
+        receiver_snapshot=receiver_snapshot(),
+        idempotency_key="checkout-split-001",
+    )
+
+    assert payment is not None
+    assert len(orders) == 2
+    assert payment.order_count == 2
+    assert payment.item_count == 2
+    assert payment.total_amount == Decimal("12.25")
+    assert payment.payable_amount == Decimal("12.25")
+
+    orders_by_seller = {order.seller_id: order for order in orders}
+    seller_a_id = seller_a.merchant_profile.id
+    seller_b_id = seller_b.merchant_profile.id
+    assert set(orders_by_seller) == {seller_a_id, seller_b_id}
+    assert orders_by_seller[seller_a_id].payable_amount == Decimal("7.00")
+    assert orders_by_seller[seller_b_id].payable_amount == Decimal("5.25")
+    assert orders_by_seller[seller_a_id].payment_id == payment.id
+    assert orders_by_seller[seller_b_id].payment_id == payment.id
+
+    db_session.refresh(sku_a)
+    db_session.refresh(sku_b)
+    assert sku_a.stock_available == 8
+    assert sku_a.stock_locked == 2
+    assert sku_b.stock_available == 9
+    assert sku_b.stock_locked == 1
+    assert not db_session.execute(select(CartItem).where(CartItem.cart_id == cart.id)).scalars().all()
+
+    commerce_service.recharge_wallet(db_session, buyer, Decimal("20.00"), "recharge-split-001")
+    paid = commerce_service.pay_checkout_payment(db_session, buyer, payment.id)
+
+    assert paid.status == PaymentStatus.PAID
+    assert paid.order_count == 2
+    assert {order.status for order in paid.orders} == {OrderStatus.PAID}
+
+    buyer_wallet = db_session.execute(select(WalletAccount).where(WalletAccount.user_id == buyer.id)).scalar_one()
+    assert buyer_wallet.available_balance == Decimal("7.75")
+    assert buyer_wallet.frozen_balance == Decimal("12.25")
+
+    buyer_ledgers = db_session.execute(select(WalletLedger).where(WalletLedger.wallet_account_id == buyer_wallet.id)).scalars().all()
+    freeze_ledgers = [
+        ledger
+        for ledger in buyer_ledgers
+        if ledger.biz_type == WalletBizType.ORDER_PAY
+        and ledger.direction == LedgerDirection.FREEZE
+        and ledger.reference_type == "checkout_payment_pay"
+        and ledger.reference_id == payment.id
+    ]
+    assert len(freeze_ledgers) == 1
+    assert freeze_ledgers[0].amount == Decimal("12.25")
+
+    order_a = orders_by_seller[seller_a_id]
+    order_b = orders_by_seller[seller_b_id]
+    shipped_a = commerce_service.ship_order(db_session, seller_a, order_a.id)
+    shipped_b = commerce_service.ship_order(db_session, seller_b, order_b.id)
+    assert shipped_a.status == OrderStatus.SHIPPED
+    assert shipped_b.status == OrderStatus.SHIPPED
+
+    completed_a = commerce_service.complete_order(db_session, buyer, shipped_a.id)
+    db_session.refresh(buyer_wallet)
+    seller_a_wallet = db_session.execute(select(WalletAccount).where(WalletAccount.user_id == seller_a.id)).scalar_one()
+    seller_b_wallet = db_session.execute(select(WalletAccount).where(WalletAccount.user_id == seller_b.id)).scalar_one()
+    assert completed_a.status == OrderStatus.COMPLETED
+    assert buyer_wallet.available_balance == Decimal("7.75")
+    assert buyer_wallet.frozen_balance == Decimal("5.25")
+    assert seller_a_wallet.available_balance == Decimal("7.00")
+    assert seller_b_wallet.available_balance == Decimal("0.00")
+
+    completed_b = commerce_service.complete_order(db_session, buyer, shipped_b.id)
+    db_session.refresh(buyer_wallet)
+    db_session.refresh(seller_a_wallet)
+    db_session.refresh(seller_b_wallet)
+    assert completed_b.status == OrderStatus.COMPLETED
+    assert buyer_wallet.available_balance == Decimal("7.75")
+    assert buyer_wallet.frozen_balance == Decimal("0.00")
+    assert seller_a_wallet.available_balance == Decimal("7.00")
+    assert seller_b_wallet.available_balance == Decimal("5.25")
+
+    buyer_ledgers = db_session.execute(select(WalletLedger).where(WalletLedger.wallet_account_id == buyer_wallet.id)).scalars().all()
+    settlement_ledgers = [
+        ledger
+        for ledger in buyer_ledgers
+        if ledger.biz_type == WalletBizType.ORDER_PAY
+        and ledger.direction == LedgerDirection.OUT
+        and ledger.reference_type == "order_complete"
+    ]
+    assert {ledger.reference_id for ledger in settlement_ledgers} == {order_a.id, order_b.id}
+    assert {ledger.amount for ledger in settlement_ledgers} == {Decimal("7.00"), Decimal("5.25")}
+
+    seller_a_ledgers = db_session.execute(select(WalletLedger).where(WalletLedger.wallet_account_id == seller_a_wallet.id)).scalars().all()
+    seller_b_ledgers = db_session.execute(select(WalletLedger).where(WalletLedger.wallet_account_id == seller_b_wallet.id)).scalars().all()
+    assert any(
+        ledger.biz_type == WalletBizType.SELLER_SETTLEMENT
+        and ledger.direction == LedgerDirection.IN
+        and ledger.reference_type == "order_complete"
+        and ledger.reference_id == order_a.id
+        and ledger.amount == Decimal("7.00")
+        for ledger in seller_a_ledgers
+    )
+    assert any(
+        ledger.biz_type == WalletBizType.SELLER_SETTLEMENT
+        and ledger.direction == LedgerDirection.IN
+        and ledger.reference_type == "order_complete"
+        and ledger.reference_id == order_b.id
+        and ledger.amount == Decimal("5.25")
+        for ledger in seller_b_ledgers
+    )
 
 
 def test_ship_complete_settles_buyer_frozen_funds_to_seller(db_session) -> None:

@@ -22,7 +22,7 @@ from app.core.config import get_settings
 from app.core.security import hash_password
 from app.db.session import get_session_factory
 from app.models.enums import OrderStatus, UserRole, UserStatus, WalletBizType
-from app.models.order import Order, OrderItem, RefundApplication
+from app.models.order import CheckoutPayment, Order, OrderItem, RefundApplication
 from app.models.product import ProductSku
 from app.models.user import UserAccount
 from app.models.wallet import WalletAccount, WalletLedger
@@ -38,6 +38,10 @@ results: list[dict] = []
 external_notes: list[tuple] = []
 ids: dict[str, int] = {}
 tokens: dict[str, str] = {}
+
+RACE_WORKERS = 12
+SCARCE_STOCK = 5
+SCARCE_BUYERS = 12
 
 
 def log(name: str, ok: bool, detail: object = "", status_code: int | None = None, category: str = "core") -> None:
@@ -132,6 +136,10 @@ def db_wallet(user_id: int) -> tuple[Decimal, Decimal, int]:
         return Decimal(wallet.available_balance), Decimal(wallet.frozen_balance), wallet.version
 
 
+def wallet_available(user_id: int) -> Decimal:
+    return db_wallet(user_id)[0]
+
+
 def db_sku(sku_id: int) -> tuple[int, int, int]:
     with Session() as db:
         sku = db.get(ProductSku, sku_id)
@@ -146,6 +154,27 @@ def db_order(order_id: int) -> tuple[str, bool, bool, bool]:
             bool(order.is_shipped),
             order.paid_at is not None,
             order.shipped_at is not None,
+        )
+
+
+def db_order_payment_id(order_id: int) -> int | None:
+    with Session() as db:
+        order = db.get(Order, order_id)
+        return order.payment_id if order else None
+
+
+def db_payment(payment_id: int) -> tuple[str, bool, bool, bool, int]:
+    with Session() as db:
+        payment = db.get(CheckoutPayment, payment_id)
+        order_count = db.execute(
+            select(func.count(Order.id)).where(Order.payment_id == payment_id)
+        ).scalar_one()
+        return (
+            payment.status.value,
+            payment.paid_at is not None,
+            payment.cancelled_at is not None,
+            payment.expired_at is not None,
+            order_count,
         )
 
 
@@ -209,7 +238,18 @@ def add_cart_and_order(buyer_token: str, sku_id: int, name: object, qty: int = 1
 
 
 def pay_order(buyer_token: str, order_id: int, name: str) -> dict:
+    payment_id = db_order_payment_id(order_id)
+    if payment_id is not None:
+        return must(name, "POST", f"/api/v1/orders/payments/{payment_id}/pay", token=buyer_token)
     return must(name, "POST", f"/api/v1/orders/{order_id}/pay", token=buyer_token)
+
+
+def cancel_order(buyer_token: str, order_id: int, name: str) -> dict:
+    status_value = db_order(order_id)[0]
+    payment_id = db_order_payment_id(order_id)
+    if payment_id is not None and status_value == "WAIT_PAY":
+        return must(name, "POST", f"/api/v1/orders/payments/{payment_id}/cancel", token=buyer_token)
+    return must(name, "POST", f"/api/v1/orders/{order_id}/cancel", token=buyer_token)
 
 
 def ship_order(seller_token: str, order_id: int, name: str) -> dict:
@@ -295,6 +335,7 @@ def run() -> None:
     buyer2_username = f"{prefix}BuyerX"
     seller_username = f"{prefix}Seller"
     reject_seller_username = f"{prefix}SellerR"
+    split_seller_username = f"{prefix}SellerSplit"
 
     buyer = must(
         "buyer register",
@@ -350,6 +391,21 @@ def run() -> None:
             "email": f"{reject_seller_username.lower()}@example.com",
         },
     )
+    split_seller = must(
+        "split seller register",
+        "POST",
+        "/api/v1/auth/seller/register",
+        expected=(201,),
+        json={
+            "shop_name": f"{prefix} Split Farm",
+            "username": split_seller_username,
+            "contact_name": "Split Owner",
+            "phone": "16" + stamp[-9:],
+            "password": password,
+            "email": f"{split_seller_username.lower()}@example.com",
+            "shop_description": "Final split-order seller",
+        },
+    )
     tokens["buyer"] = must(
         "buyer login",
         "POST",
@@ -374,11 +430,19 @@ def run() -> None:
         "/api/v1/auth/seller/login",
         json={"identifier": reject_seller_username, "password": password},
     )["access_token"]
+    tokens["split_seller"] = must(
+        "split seller login",
+        "POST",
+        "/api/v1/auth/seller/login",
+        json={"identifier": split_seller_username, "password": password},
+    )["access_token"]
     ids["buyer_user_id"] = buyer["user"]["id"]
     ids["buyer2_user_id"] = buyer2["user"]["id"]
     ids["seller_user_id"] = seller["user"]["id"]
     ids["seller_merchant_id"] = seller["user"]["merchant_profile"]["id"]
     ids["reject_merchant_id"] = reject_seller["user"]["merchant_profile"]["id"]
+    ids["split_seller_user_id"] = split_seller["user"]["id"]
+    ids["split_merchant_id"] = split_seller["user"]["merchant_profile"]["id"]
 
     req("no token admin forbidden", "GET", "/api/v1/admin/users", expected=(401,))
     req("bad token forbidden", "GET", "/api/v1/auth/me", token="bad.token.value", expected=(401,))
@@ -401,6 +465,34 @@ def run() -> None:
         "/api/v1/auth/buyer/login",
         json={"identifier": buyer2_username, "password": password},
     )["access_token"]
+
+    address_payload = {
+        "receiver_name": "Final Receiver",
+        "receiver_phone": "13800000000",
+        "province": "Zhejiang",
+        "city": "Hangzhou",
+        "district": "Xihu",
+        "detail": f"{prefix} Address 1",
+        "is_default": True,
+    }
+    address = must(
+        "buyer address create",
+        "POST",
+        "/api/v1/addresses",
+        token=tokens["buyer"],
+        expected=(201,),
+        json=address_payload,
+    )
+    req("buyer addresses list", "GET", "/api/v1/addresses", token=tokens["buyer"])
+    updated_address_payload = {**address_payload, "detail": f"{prefix} Address Updated", "is_default": True}
+    req(
+        "buyer address patch",
+        "PATCH",
+        f"/api/v1/addresses/{address['id']}",
+        token=tokens["buyer"],
+        json=updated_address_payload,
+    )
+    req("buyer address delete", "DELETE", f"/api/v1/addresses/{address['id']}", token=tokens["buyer"], expected=(204,))
 
     audit_upload = req(
         "merchant audit image upload",
@@ -439,6 +531,14 @@ def run() -> None:
     )
     req("seller audit submit", "POST", "/api/v1/seller/audit-materials/submit", token=tokens["seller"])
     req("reject seller audit submit", "POST", "/api/v1/seller/audit-materials/submit", token=tokens["reject_seller"])
+    req(
+        "split seller audit materials patch",
+        "PATCH",
+        "/api/v1/seller/audit-materials",
+        token=tokens["split_seller"],
+        json={"audit_material_text": "split seller audit material", "audit_images_json": [audit_upload.get("image_url")]},
+    )
+    req("split seller audit submit", "POST", "/api/v1/seller/audit-materials/submit", token=tokens["split_seller"])
     req("admin merchants pending", "GET", "/api/v1/admin/merchants?status_filter=pending", token=tokens["admin"])
     req(
         "admin merchant reject route",
@@ -453,6 +553,13 @@ def run() -> None:
         f"/api/v1/admin/merchants/{ids['seller_merchant_id']}/approve",
         token=tokens["admin"],
         json={"reason": "approved for final test"},
+    )
+    req(
+        "admin split merchant approve",
+        "POST",
+        f"/api/v1/admin/merchants/{ids['split_merchant_id']}/approve",
+        token=tokens["admin"],
+        json={"reason": "approved for split checkout test"},
     )
     req(
         "audit patch after approve rejected",
@@ -521,6 +628,16 @@ def run() -> None:
         json=product_payload(f"{prefix} Offline Cycle", 20),
     )
     ids["spu_offline"] = offline_product["id"]
+    split_product = must(
+        "split seller product create",
+        "POST",
+        "/api/v1/seller/products",
+        token=tokens["split_seller"],
+        expected=(201,),
+        json=product_payload(f"{prefix} Split Potato", 30, price="5.25"),
+    )
+    ids["spu_split"] = split_product["id"]
+    ids["sku_split"] = split_product["skus"][0]["id"]
     req("seller products list", "GET", "/api/v1/seller/products", token=tokens["seller"])
     req("seller product get", "GET", f"/api/v1/seller/products/{ids['spu_main']}", token=tokens["seller"])
     req("seller product update draft", "PATCH", f"/api/v1/seller/products/{ids['spu_main']}", token=tokens["seller"], json={"description": "updated before review"})
@@ -528,10 +645,12 @@ def run() -> None:
     req("seller submit main", "POST", f"/api/v1/seller/products/{ids['spu_main']}/submit", token=tokens["seller"])
     req("seller submit rejected product", "POST", f"/api/v1/seller/products/{ids['spu_rejected']}/submit", token=tokens["seller"])
     req("seller submit offlinecycle", "POST", f"/api/v1/seller/products/{ids['spu_offline']}/submit", token=tokens["seller"])
+    req("split seller submit product", "POST", f"/api/v1/seller/products/{ids['spu_split']}/submit", token=tokens["split_seller"])
     req("admin pending products", "GET", "/api/v1/admin/products/pending", token=tokens["admin"])
     req("admin reject product", "POST", f"/api/v1/admin/products/{ids['spu_rejected']}/reject", token=tokens["admin"], json={"reason": "reject visibility test"})
     req("admin approve main", "POST", f"/api/v1/admin/products/{ids['spu_main']}/approve", token=tokens["admin"], json={"reason": "approve main"})
     req("admin approve offlinecycle", "POST", f"/api/v1/admin/products/{ids['spu_offline']}/approve", token=tokens["admin"], json={"reason": "approve offline cycle"})
+    req("admin approve split product", "POST", f"/api/v1/admin/products/{ids['spu_split']}/approve", token=tokens["admin"], json={"reason": "approve split product"})
     req("public product rejected hidden detail", "GET", f"/api/v1/products/{ids['spu_rejected']}", expected=(404,))
     req("public products list db", "GET", f"/api/v1/products?q={quote(prefix)}&page=1&page_size=20")
     req("public product detail main", "GET", f"/api/v1/products/{ids['spu_main']}")
@@ -603,13 +722,96 @@ def run() -> None:
     req("cart delete item", "DELETE", f"/api/v1/cart/items/{temp_id}", token=tokens["buyer"])
     req("cart get", "GET", "/api/v1/cart", token=tokens["buyer"])
 
+    split_cart_a = must(
+        "split checkout cart add main",
+        "POST",
+        "/api/v1/cart/items",
+        token=tokens["buyer"],
+        expected=(201,),
+        json={"sku_id": ids["sku_main"], "quantity": 1, "selected": True},
+    )
+    split_item_a = [item["id"] for item in split_cart_a["items"] if item["sku_id"] == ids["sku_main"]][-1]
+    split_cart_b = must(
+        "split checkout cart add second merchant",
+        "POST",
+        "/api/v1/cart/items",
+        token=tokens["buyer"],
+        expected=(201,),
+        json={"sku_id": ids["sku_split"], "quantity": 2, "selected": True},
+    )
+    split_item_b = [item["id"] for item in split_cart_b["items"] if item["sku_id"] == ids["sku_split"]][-1]
+    split_body = must(
+        "split checkout creates payment",
+        "POST",
+        "/api/v1/orders",
+        token=tokens["buyer"],
+        expected=(201,),
+        json={
+            "idempotency_key": f"{prefix}-split-checkout",
+            "auto_pay": False,
+            "cart_item_ids": [split_item_a, split_item_b],
+            "receiver_snapshot": make_receiver("split-checkout"),
+        },
+    )
+    split_payment = split_body["payment"]
+    split_orders = split_body["orders"]
+    log(
+        "split checkout produces two orders in one payment",
+        split_payment["order_count"] == 2 and len(split_orders) == 2,
+        {"payment": split_payment, "orders": split_orders},
+    )
+    split_orders_by_seller = {order["seller_id"]: order for order in split_orders}
+    log(
+        "split checkout assigns merchants",
+        set(split_orders_by_seller) == {ids["seller_merchant_id"], ids["split_merchant_id"]},
+        split_orders_by_seller,
+    )
+    before_primary_seller_balance = wallet_available(ids["seller_user_id"])
+    before_split_seller_balance = wallet_available(ids["split_seller_user_id"])
+    req("pay split checkout payment", "POST", f"/api/v1/orders/payments/{split_payment['id']}/pay", token=tokens["buyer"])
+    split_payment_after_pay = must(
+        "split checkout payment detail after pay",
+        "GET",
+        f"/api/v1/orders/payments/{split_payment['id']}",
+        token=tokens["buyer"],
+    )
+    log(
+        "split checkout payment paid both orders",
+        split_payment_after_pay["status"] == "PAID"
+        and all(order["status"] == "PAID" for order in split_payment_after_pay["orders"]),
+        split_payment_after_pay,
+    )
+    primary_split_order = split_orders_by_seller[ids["seller_merchant_id"]]
+    second_split_order = split_orders_by_seller[ids["split_merchant_id"]]
+    ship_order(tokens["seller"], primary_split_order["id"], "ship split primary order")
+    ship_order(tokens["split_seller"], second_split_order["id"], "ship split second order")
+    req("complete split primary order", "POST", f"/api/v1/orders/{primary_split_order['id']}/complete", token=tokens["buyer"])
+    mid_primary_seller_balance = wallet_available(ids["seller_user_id"])
+    mid_split_seller_balance = wallet_available(ids["split_seller_user_id"])
+    log(
+        "split checkout first completion settles only first seller",
+        mid_primary_seller_balance == before_primary_seller_balance + Decimal(str(primary_split_order["payable_amount"]))
+        and mid_split_seller_balance == before_split_seller_balance,
+        f"primary {before_primary_seller_balance}->{mid_primary_seller_balance}, split {before_split_seller_balance}->{mid_split_seller_balance}",
+    )
+    req("complete split second order", "POST", f"/api/v1/orders/{second_split_order['id']}/complete", token=tokens["buyer"])
+    after_primary_seller_balance = wallet_available(ids["seller_user_id"])
+    after_split_seller_balance = wallet_available(ids["split_seller_user_id"])
+    log(
+        "split checkout second completion settles second seller",
+        after_primary_seller_balance == mid_primary_seller_balance
+        and after_split_seller_balance == before_split_seller_balance + Decimal(str(second_split_order["payable_amount"])),
+        f"primary {mid_primary_seller_balance}->{after_primary_seller_balance}, split {before_split_seller_balance}->{after_split_seller_balance}",
+    )
+
     unpaid = add_cart_and_order(tokens["buyer"], ids["sku_main"], "unpaid-cancel")
     req("seller cannot see unpaid order", "GET", f"/api/v1/seller/orders/{unpaid['id']}", token=tokens["seller"], expected=(404,))
-    req("cancel wait_pay order", "POST", f"/api/v1/orders/{unpaid['id']}/cancel", token=tokens["buyer"])
+    cancel_order(tokens["buyer"], unpaid["id"], "cancel wait_pay checkout payment")
     log("wait_pay cancel status", db_order(unpaid["id"])[0] == "CANCELLED", db_order(unpaid["id"]))
+    log("wait_pay cancel payment status", db_payment(unpaid["payment_id"])[0] == "CANCELLED", db_payment(unpaid["payment_id"]))
 
     paid_cancel = add_cart_and_order(tokens["buyer"], ids["sku_main"], "paid-cancel")
-    req("pay paid-cancel order", "POST", f"/api/v1/orders/{paid_cancel['id']}/pay", token=tokens["buyer"])
+    pay_order(tokens["buyer"], paid_cancel["id"], "pay paid-cancel checkout payment")
     req("seller sees paid order", "GET", f"/api/v1/seller/orders/{paid_cancel['id']}", token=tokens["seller"])
     req("cancel paid unshipped order", "POST", f"/api/v1/orders/{paid_cancel['id']}/cancel", token=tokens["buyer"])
     log("paid unshipped cancel status", db_order(paid_cancel["id"])[0] == "CANCELLED", db_order(paid_cancel["id"]))
@@ -618,9 +820,30 @@ def run() -> None:
     with Session.begin() as db:
         order = db.get(Order, timeout_order["id"])
         order.payment_expires_at = datetime.now(UTC) - timedelta(minutes=1)
-    req("expired wait_pay pay returns expired detail", "POST", f"/api/v1/orders/{timeout_order['id']}/pay", token=tokens["buyer"])
+        payment = db.get(CheckoutPayment, timeout_order["payment_id"])
+        payment.payment_expires_at = datetime.now(UTC) - timedelta(minutes=1)
+    req("expired wait_pay payment returns expired detail", "POST", f"/api/v1/orders/payments/{timeout_order['payment_id']}/pay", token=tokens["buyer"])
     req("expired wait_pay detail triggers expiration", "GET", f"/api/v1/orders/{timeout_order['id']}", token=tokens["buyer"])
     log("timeout order expired", db_order(timeout_order["id"])[0] == "EXPIRED", db_order(timeout_order["id"]))
+    log("timeout payment expired", db_payment(timeout_order["payment_id"])[0] == "EXPIRED", db_payment(timeout_order["payment_id"]))
+
+    direct_order = must(
+        "direct order create",
+        "POST",
+        "/api/v1/orders/direct",
+        token=tokens["buyer"],
+        expected=(201,),
+        json={
+            "idempotency_key": f"{prefix}-direct-main",
+            "auto_pay": False,
+            "sku_id": ids["sku_main"],
+            "quantity": 1,
+            "receiver_snapshot": make_receiver("direct-main"),
+        },
+    )
+    pay_order(tokens["buyer"], direct_order["id"], "pay direct order through payment")
+    direct_paid_state = db_order(direct_order["id"])
+    log("direct order paid through payment", direct_paid_state[0] == "PAID", direct_paid_state)
 
     completed_order = add_cart_and_order(tokens["buyer"], ids["sku_main"], "complete")
     pay_order(tokens["buyer"], completed_order["id"], "pay complete order")
@@ -748,8 +971,8 @@ def run() -> None:
             json={"amount": "7.00", "idempotency_key": recharge_concurrent_key},
         ).status_code
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        recharge_statuses = list(executor.map(recharge_once, range(10)))
+    with ThreadPoolExecutor(max_workers=RACE_WORKERS) as executor:
+        recharge_statuses = list(executor.map(recharge_once, range(RACE_WORKERS)))
     log("concurrent recharge same key no server error", all(code in {200, 409} for code in recharge_statuses), recharge_statuses)
     from app.services.commerce.service import _wallet_recharge_reference_id
 
@@ -783,8 +1006,8 @@ def run() -> None:
             },
         ).status_code
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        duplicate_order_statuses = list(executor.map(create_same_order, range(10)))
+    with ThreadPoolExecutor(max_workers=RACE_WORKERS) as executor:
+        duplicate_order_statuses = list(executor.map(create_same_order, range(RACE_WORKERS)))
     with Session() as db:
         duplicate_order_count = db.execute(
             select(func.count(Order.id)).where(
@@ -803,7 +1026,7 @@ def run() -> None:
         ).scalar_one()
     log(
         "concurrent order idempotency same key no server error",
-        all(code == 201 for code in duplicate_order_statuses),
+        all(code < 500 for code in duplicate_order_statuses),
         duplicate_order_statuses,
     )
     log(
@@ -813,38 +1036,41 @@ def run() -> None:
     )
 
     pay_concurrent_order = add_cart_and_order(tokens["buyer"], ids["sku_main"], "pay-concurrent")
+    pay_concurrent_payment_id = pay_concurrent_order["payment_id"]
 
     def pay_once(_: int) -> int:
         return client.post(
-            f"/api/v1/orders/{pay_concurrent_order['id']}/pay",
+            f"/api/v1/orders/payments/{pay_concurrent_payment_id}/pay",
             headers=auth(tokens["buyer"]),
         ).status_code
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        pay_statuses = list(executor.map(pay_once, range(10)))
+    with ThreadPoolExecutor(max_workers=RACE_WORKERS) as executor:
+        pay_statuses = list(executor.map(pay_once, range(RACE_WORKERS)))
     log("concurrent pay no server error", all(code in {200, 400} for code in pay_statuses), pay_statuses)
     log(
-        "order pay ledger once",
-        ledger_count(ids["buyer_user_id"], WalletBizType.ORDER_PAY, "order_pay", pay_concurrent_order["id"]) == 1,
-        ledger_count(ids["buyer_user_id"], WalletBizType.ORDER_PAY, "order_pay", pay_concurrent_order["id"]),
+        "checkout payment ledger once",
+        ledger_count(ids["buyer_user_id"], WalletBizType.ORDER_PAY, "checkout_payment_pay", pay_concurrent_payment_id) == 1,
+        ledger_count(ids["buyer_user_id"], WalletBizType.ORDER_PAY, "checkout_payment_pay", pay_concurrent_payment_id),
     )
 
     pay_cancel_order = add_cart_and_order(tokens["buyer"], ids["sku_main"], "pay-cancel-race")
+    pay_cancel_payment_id = pay_cancel_order["payment_id"]
 
     def pay_or_cancel(index: int) -> tuple[str, int]:
         if index % 2 == 0:
-            response = client.post(f"/api/v1/orders/{pay_cancel_order['id']}/pay", headers=auth(tokens["buyer"]))
+            response = client.post(f"/api/v1/orders/payments/{pay_cancel_payment_id}/pay", headers=auth(tokens["buyer"]))
             return ("pay", response.status_code)
-        response = client.post(f"/api/v1/orders/{pay_cancel_order['id']}/cancel", headers=auth(tokens["buyer"]))
+        response = client.post(f"/api/v1/orders/payments/{pay_cancel_payment_id}/cancel", headers=auth(tokens["buyer"]))
         return ("cancel", response.status_code)
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        pay_cancel_results = list(executor.map(pay_or_cancel, range(10)))
+    with ThreadPoolExecutor(max_workers=RACE_WORKERS) as executor:
+        pay_cancel_results = list(executor.map(pay_or_cancel, range(RACE_WORKERS)))
     pay_cancel_state = db_order(pay_cancel_order["id"])
+    pay_cancel_payment_state = db_payment(pay_cancel_payment_id)
     log(
         "concurrent pay/cancel valid terminal state",
-        pay_cancel_state[0] in {"PAID", "CANCELLED"},
-        f"state={pay_cancel_state}, results={pay_cancel_results}",
+        pay_cancel_state[0] in {"PAID", "CANCELLED"} and pay_cancel_payment_state[0] in {"PAID", "CANCELLED"},
+        f"order={pay_cancel_state}, payment={pay_cancel_payment_state}, results={pay_cancel_results}",
     )
 
     ship_cancel_order = add_cart_and_order(tokens["buyer"], ids["sku_main"], "ship-cancel-race")
@@ -857,8 +1083,8 @@ def run() -> None:
         response = client.post(f"/api/v1/orders/{ship_cancel_order['id']}/cancel", headers=auth(tokens["buyer"]))
         return ("cancel", response.status_code)
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        ship_cancel_results = list(executor.map(ship_or_cancel, range(10)))
+    with ThreadPoolExecutor(max_workers=RACE_WORKERS) as executor:
+        ship_cancel_results = list(executor.map(ship_or_cancel, range(RACE_WORKERS)))
     ship_cancel_state = db_order(ship_cancel_order["id"])
     log(
         "concurrent ship/cancel valid terminal state",
@@ -887,8 +1113,8 @@ def run() -> None:
         )
         return (action, response.status_code)
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        refund_decision_results = list(executor.map(approve_or_reject_refund, range(10)))
+    with ThreadPoolExecutor(max_workers=RACE_WORKERS) as executor:
+        refund_decision_results = list(executor.map(approve_or_reject_refund, range(RACE_WORKERS)))
     refund_decision_state = db_order(decision_race_order["id"])
     with Session() as db:
         refund_state = db.get(RefundApplication, decision_race_refund["id"]).status.value
@@ -898,14 +1124,14 @@ def run() -> None:
         f"order={refund_decision_state}, refund={refund_state}, results={refund_decision_results}",
     )
 
-    scarce = must("seller product create scarce", "POST", "/api/v1/seller/products", token=tokens["seller"], expected=(201,), json=product_payload(f"{prefix} Scarce", 3, price="1.00"))
+    scarce = must("seller product create scarce", "POST", "/api/v1/seller/products", token=tokens["seller"], expected=(201,), json=product_payload(f"{prefix} Scarce", SCARCE_STOCK, price="1.00"))
     ids["spu_scarce"] = scarce["id"]
     ids["sku_scarce"] = scarce["skus"][0]["id"]
     req("seller submit scarce", "POST", f"/api/v1/seller/products/{ids['spu_scarce']}/submit", token=tokens["seller"])
     req("admin approve scarce", "POST", f"/api/v1/admin/products/{ids['spu_scarce']}/approve", token=tokens["admin"], json={"reason": "scarce concurrency"})
 
     worker_tokens = []
-    for index in range(6):
+    for index in range(SCARCE_BUYERS):
         username = f"{prefix}C{index}"
         must(
             f"conc buyer {index} register",
@@ -944,7 +1170,7 @@ def run() -> None:
         except Exception as exc:
             return ("exc", str(exc)[:80])
 
-    with ThreadPoolExecutor(max_workers=6) as executor:
+    with ThreadPoolExecutor(max_workers=SCARCE_BUYERS) as executor:
         scarce_results = list(executor.map(buy_scarce, enumerate(worker_tokens)))
     stock_available, stock_locked, _ = db_sku(ids["sku_scarce"])
     with Session() as db:
@@ -964,7 +1190,9 @@ def run() -> None:
     )
     log(
         "concurrent scarce no oversell and accounting matches",
-        scarce_paid_qty <= 3 and stock_available == 3 - scarce_paid_qty and stock_locked == scarce_paid_qty,
+        scarce_paid_qty <= SCARCE_STOCK
+        and stock_available == SCARCE_STOCK - scarce_paid_qty
+        and stock_locked == scarce_paid_qty,
         f"results={scarce_results}, stock={stock_available}, locked={stock_locked}, paid_qty={scarce_paid_qty}",
     )
 
@@ -1004,3 +1232,6 @@ for item in failures:
     print("FAIL_ITEM", json.dumps(item, ensure_ascii=False, default=str))
 for item in external_notes:
     print("EXTERNAL_NOTE", json.dumps(item, ensure_ascii=False, default=str)[:1000])
+
+if failures:
+    sys.exit(1)

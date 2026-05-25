@@ -1,6 +1,6 @@
 from typing import Any, Callable
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.core.cache import TokenBlocklistStore, get_token_blocklist_store
 from app.core.config import Settings, get_settings
@@ -9,6 +9,7 @@ from app.core.dependencies import (
     get_current_user,
     token_remaining_seconds,
 )
+from app.core.rate_limit import enforce_auth_rate_limit
 from app.db.session import get_db
 from app.models.enums import UserRole
 from app.schemas.auth import (
@@ -62,18 +63,63 @@ def _register_and_commit(
         raise
 
 
+def _enforce_register_rate_limit(request: Request, settings: Settings, role: UserRole) -> None:
+    enforce_auth_rate_limit(
+        request,
+        settings,
+        scope=f"register:{role.value}",
+        ip_limit=settings.auth_register_ip_limit,
+    )
+
+
+def _enforce_login_rate_limit(
+    request: Request,
+    settings: Settings,
+    *,
+    role: UserRole,
+    identifier: str,
+) -> None:
+    enforce_auth_rate_limit(
+        request,
+        settings,
+        scope=f"login:{role.value}",
+        ip_limit=settings.auth_login_ip_limit,
+        identifier_limit=settings.auth_login_identifier_limit,
+        role=role,
+        identifier=identifier,
+    )
+
+
+def _enforce_password_reset_rate_limit(
+    request: Request,
+    settings: Settings,
+    payload: PasswordResetRequest,
+) -> None:
+    enforce_auth_rate_limit(
+        request,
+        settings,
+        scope="password-reset",
+        ip_limit=settings.auth_password_reset_ip_limit,
+        identifier_limit=settings.auth_password_reset_identifier_limit,
+        role=payload.role,
+        identifier=payload.identifier,
+    )
+
+
 @router.post(
     "/buyer/register",
     response_model=AuthResponse,
     status_code=status.HTTP_201_CREATED,
 )
 def register_buyer(
+    request: Request,
     payload: BuyerRegisterRequest,
     db: Any = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> AuthResponse:
     from app.services.auth.service import register_buyer as create_buyer
 
+    _enforce_register_rate_limit(request, settings, UserRole.BUYER)
     return _register_and_commit(
         db=db,
         settings=settings,
@@ -88,12 +134,14 @@ def register_buyer(
     status_code=status.HTTP_201_CREATED,
 )
 def register_seller(
+    request: Request,
     payload: SellerRegisterRequest,
     db: Any = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> AuthResponse:
     from app.services.auth.service import register_seller as create_seller
 
+    _enforce_register_rate_limit(request, settings, UserRole.SELLER)
     return _register_and_commit(
         db=db,
         settings=settings,
@@ -104,12 +152,14 @@ def register_seller(
 
 @router.post("/buyer/login", response_model=AuthResponse)
 def login_buyer(
+    request: Request,
     payload: RoleLoginRequest,
     db: Any = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> AuthResponse:
     from app.services.auth.service import authenticate_user
 
+    _enforce_login_rate_limit(request, settings, role=UserRole.BUYER, identifier=payload.identifier)
     _ensure_jwt_configured(settings)
     user = authenticate_user(
         db,
@@ -122,12 +172,14 @@ def login_buyer(
 
 @router.post("/seller/login", response_model=AuthResponse)
 def login_seller(
+    request: Request,
     payload: RoleLoginRequest,
     db: Any = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> AuthResponse:
     from app.services.auth.service import authenticate_user
 
+    _enforce_login_rate_limit(request, settings, role=UserRole.SELLER, identifier=payload.identifier)
     _ensure_jwt_configured(settings)
     user = authenticate_user(
         db,
@@ -140,12 +192,14 @@ def login_seller(
 
 @router.post("/admin/login", response_model=AuthResponse)
 def login_admin(
+    request: Request,
     payload: AdminLoginRequest,
     db: Any = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> AuthResponse:
     from app.services.auth.service import authenticate_user
 
+    _enforce_login_rate_limit(request, settings, role=UserRole.ADMIN, identifier=payload.username)
     _ensure_jwt_configured(settings)
     user = authenticate_user(
         db,
@@ -298,12 +352,14 @@ def update_my_password(
 
 @router.post("/password-reset/request", response_model=PasswordResetTicket)
 def request_password_reset(
+    request: Request,
     payload: PasswordResetRequest,
     db: Any = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> PasswordResetTicket:
     from app.services.auth.service import request_password_reset_token
 
+    _enforce_password_reset_rate_limit(request, settings, payload)
     _ensure_jwt_configured(settings)
     ticket = request_password_reset_token(db, payload, settings)
     return PasswordResetTicket(**ticket)

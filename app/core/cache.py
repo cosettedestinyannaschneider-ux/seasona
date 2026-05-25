@@ -7,6 +7,7 @@ from threading import RLock
 from typing import Protocol
 
 from app.core.config import get_settings
+from app.core.redis import get_required_redis_client
 
 
 class TokenBlocklistStore(Protocol):
@@ -43,13 +44,8 @@ class InMemoryTokenBlocklistStore:
 
 
 class RedisTokenBlocklistStore:
-    def __init__(self, redis_url: str) -> None:
-        try:
-            import redis  # type: ignore
-        except ImportError as exc:  # pragma: no cover - optional dependency branch
-            raise RuntimeError("redis package is not installed.") from exc
-
-        self._client = redis.Redis.from_url(redis_url, decode_responses=True)
+    def __init__(self) -> None:
+        self._client = get_required_redis_client()
         self._prefix = "seasona:auth:blacklist:"
 
     def revoke(self, jti: str, ttl_seconds: int) -> None:
@@ -63,7 +59,7 @@ class RedisTokenBlocklistStore:
 def get_token_blocklist_store() -> TokenBlocklistStore:
     settings = get_settings()
     if settings.redis_url:
-        return RedisTokenBlocklistStore(settings.redis_url)
+        return RedisTokenBlocklistStore()
     if settings.environment.lower() not in {"local", "test", "development", "dev"}:
         raise RuntimeError("SEASONA_REDIS_URL is required outside local development.")
     return InMemoryTokenBlocklistStore()
