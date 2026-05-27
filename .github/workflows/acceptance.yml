@@ -1,0 +1,107 @@
+name: Acceptance
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  final-acceptance:
+    name: Final acceptance test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18.3-bookworm
+        env:
+          POSTGRES_DB: seasona_acceptance
+          POSTGRES_USER: seasona_user
+          POSTGRES_PASSWORD: seasona_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U seasona_user -d seasona_acceptance"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:8.6.2-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      meilisearch:
+        image: getmeili/meilisearch:latest
+        env:
+          MEILI_ENV: development
+          MEILI_MASTER_KEY: acceptance-master-key
+        ports:
+          - 7700:7700
+    env:
+      SEASONA_ENVIRONMENT: test
+      SEASONA_DATABASE_URL: postgresql+psycopg://seasona_user:seasona_password@localhost:5432/seasona_acceptance
+      SEASONA_REDIS_URL: redis://localhost:6379/0
+      SEASONA_MEILISEARCH_URL: http://localhost:7700
+      SEASONA_MEILISEARCH_API_KEY: acceptance-master-key
+      SEASONA_JWT_SECRET_KEY: test-secret-key
+      SEASONA_ARGON2_TIME_COST: "1"
+      SEASONA_ARGON2_MEMORY_COST: "8192"
+      SEASONA_ARGON2_PARALLELISM: "1"
+      SEASONA_AUTH_RATE_LIMIT_ENABLED: "false"
+      SEASONA_MEDIA_ROOT: test/media
+      SEASONA_LLM_API_KEY: ""
+      SEASONA_LLM_BASE_URL: ""
+      SEASONA_LLM_MODEL: ""
+      SEASONA_EMBEDDING_API_KEY: ""
+      SEASONA_EMBEDDING_BASE_URL: ""
+      SEASONA_EMBEDDING_MODEL: ""
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install backend test dependencies
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Wait for Meilisearch
+        run: |
+          python - <<'PY'
+          import json
+          import time
+          from urllib.request import urlopen
+
+          for _ in range(60):
+              try:
+                  with urlopen("http://localhost:7700/health", timeout=2) as response:
+                      payload = json.loads(response.read().decode("utf-8"))
+                  if payload.get("status") == "available":
+                      raise SystemExit(0)
+              except Exception:
+                  time.sleep(1)
+          raise SystemExit("Meilisearch did not become healthy.")
+          PY
+
+      - name: Initialize acceptance database schema
+        run: |
+          python - <<'PY'
+          import app.models  # noqa: F401
+          from app.db.base import Base
+          from app.db.session import get_engine
+
+          engine = get_engine()
+          Base.metadata.drop_all(bind=engine)
+          Base.metadata.create_all(bind=engine)
+          PY
+
+      - name: Run final acceptance script
+        run: python test/final_acceptance_test.py
