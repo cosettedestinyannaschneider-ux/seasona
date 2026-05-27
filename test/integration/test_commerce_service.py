@@ -284,6 +284,7 @@ def test_refund_paths_for_shipped_completed_and_overdue_dispute(db_session) -> N
         evidence_images_json=[],
     )
     db_session.get(RefundApplication, refund3.id).seller_deadline_at = datetime.now(UTC) - timedelta(days=1)
+    db_session.flush()
     dispute = commerce_service.create_refund_dispute(
         db_session,
         buyer,
