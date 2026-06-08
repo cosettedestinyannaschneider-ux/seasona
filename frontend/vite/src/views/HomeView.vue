@@ -2,7 +2,7 @@
   <section class="home-page">
     <div class="hero-panel">
       <div class="hero-panel__copy">
-        <span class="section-kicker">Seasona 拾季</span>
+        <img class="home-logo" src="../assets/page_logo_hero_sm.png" alt="Seasona 拾季" />
         <h1>今天想吃什么？</h1>
         <p>把一道菜、一顿饭或一份食材需求告诉小拾，从灵感直接走到商品清单。</p>
         <SearchBox

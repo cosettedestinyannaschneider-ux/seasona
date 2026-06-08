@@ -2,7 +2,9 @@
   <div class="app-shell">
     <header class="site-header" :class="{ 'site-header--compact': isCompact, 'site-header--workbench': isWorkbenchRole }">
       <RouterLink class="brand" :to="brandTarget" aria-label="返回拾季">
-        <span class="brand-mark">S</span>
+        <span class="brand-mark">
+          <img src="/icon_logo_transparent.png" alt="" />
+        </span>
         <span class="brand-copy">
           <strong>Seasona</strong>
           <small>拾季鲜食</small>
