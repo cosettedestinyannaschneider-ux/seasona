@@ -184,6 +184,7 @@ const API_MESSAGE_TRANSLATIONS = [
   ['Comment not found', '评论不存在或已被删除'],
 
   ['Only jpeg, png, webp and gif images are allowed', '只支持 jpeg、png、webp 或 gif 图片'],
+  ['Uploaded image content does not match its declared image type', '图片内容与文件类型不匹配，请重新选择图片'],
   ['Image exceeds', '图片过大，请换一张更小的图片'],
 ]
 

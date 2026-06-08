@@ -1,50 +1,60 @@
 <template>
-  <section class="ai-page">
-    <aside class="ai-sidebar">
+  <section class="ai-page-shell">
+    <div class="ai-page" :class="{ 'ai-page--locked': !auth.isAuthenticated }">
+      <aside class="ai-sidebar">
+        <SeedCompanion mood="focus" compact />
+        <button class="ai-new-session" type="button" @click="startNewSession">新对话</button>
+        <div class="ai-session-list">
+          <div v-if="showSessionsLoading" class="loading-hint">正在加载会话</div>
+          <button
+            v-for="item in sessions"
+            :key="item.id"
+            type="button"
+            :title="item.title || `会话 ${item.id}`"
+            :class="{ active: item.id === sessionId }"
+            @click="loadSession(item.id)"
+          >
+            {{ item.title || `会话 ${item.id}` }}
+          </button>
+          <div v-if="!sessionsLoading && !sessions.length" class="ai-session-empty">暂无历史会话</div>
+        </div>
+      </aside>
+
+      <div class="ai-chat">
+        <div class="ai-thread">
+          <template v-for="messageItem in messages" :key="messageItem.id">
+            <div class="message" :class="`message--${messageItem.role}`">
+              <span>{{ messageItem.content }}</span>
+            </div>
+            <AiProductStrip
+              v-if="messageItem.role === 'assistant' && messageItem.products?.length"
+              :products="messageItem.products"
+            />
+            <AiIngredientGroups
+              v-if="messageItem.role === 'assistant' && messageItem.resultGroups?.length"
+              :groups="messageItem.resultGroups"
+            />
+          </template>
+          <div v-if="showChatLoading" class="message message--assistant">正在加载回复</div>
+        </div>
+
+        <div v-if="sessionLocked" class="chat-locked">
+          <span>本次采购清单已生成，可以继续加购商品；如需重新描述，请开启新对话。</span>
+          <button type="button" @click="startNewSession">开启新对话</button>
+        </div>
+        <form v-else class="chat-input" @submit.prevent="send">
+          <input v-model="draft" type="text" placeholder="继续描述一道菜或一顿饭" />
+          <button type="submit" :disabled="loading">{{ loading ? '发送中' : '发送' }}</button>
+        </form>
+      </div>
+    </div>
+
+    <div v-if="!auth.isAuthenticated" class="ai-login-gate" role="dialog" aria-labelledby="ai-login-title">
       <SeedCompanion mood="focus" compact />
-      <button class="ai-new-session" type="button" @click="startNewSession">新对话</button>
-      <div class="ai-session-list">
-        <div v-if="showSessionsLoading" class="loading-hint">正在加载会话</div>
-        <button
-          v-for="item in sessions"
-          :key="item.id"
-          type="button"
-          :title="item.title || `会话 ${item.id}`"
-          :class="{ active: item.id === sessionId }"
-          @click="loadSession(item.id)"
-        >
-          {{ item.title || `会话 ${item.id}` }}
-        </button>
-        <div v-if="!sessionsLoading && !sessions.length" class="ai-session-empty">暂无历史会话</div>
-      </div>
-    </aside>
-
-    <div class="ai-chat">
-      <div class="ai-thread">
-        <template v-for="messageItem in messages" :key="messageItem.id">
-          <div class="message" :class="`message--${messageItem.role}`">
-            <span>{{ messageItem.content }}</span>
-          </div>
-          <AiProductStrip
-            v-if="messageItem.role === 'assistant' && messageItem.products?.length"
-            :products="messageItem.products"
-          />
-          <AiIngredientGroups
-            v-if="messageItem.role === 'assistant' && messageItem.resultGroups?.length"
-            :groups="messageItem.resultGroups"
-          />
-        </template>
-        <div v-if="showChatLoading" class="message message--assistant">正在加载回复</div>
-      </div>
-
-      <div v-if="sessionLocked" class="chat-locked">
-        <span>本次采购清单已生成，可以继续加购商品；如需重新描述，请开启新对话。</span>
-        <button type="button" @click="startNewSession">开启新对话</button>
-      </div>
-      <form v-else class="chat-input" @submit.prevent="send">
-        <input v-model="draft" type="text" placeholder="继续描述一道菜或一顿饭" />
-        <button type="submit" :disabled="loading">{{ loading ? '发送中' : '发送' }}</button>
-      </form>
+      <span class="section-kicker">小拾助手</span>
+      <h1 id="ai-login-title">登录后可使用小拾</h1>
+      <p>小拾会根据你的对话生成采购清单，并把候选商品保存到当前账号下。</p>
+      <button class="primary-button" type="button" @click="goLogin">去登录</button>
     </div>
   </section>
 </template>
@@ -236,7 +246,12 @@ function send() {
   sendMessage(draft.value.trim())
 }
 
+function goLogin() {
+  router.push({ path: '/auth', query: { redirect: route.fullPath } })
+}
+
 onMounted(async () => {
+  if (!auth.isAuthenticated) return
   await refreshSessions()
   if (firstMessage.value) {
     sendMessage(firstMessage.value)

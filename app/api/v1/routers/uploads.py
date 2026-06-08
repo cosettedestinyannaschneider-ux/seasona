@@ -12,6 +12,9 @@ from app.schemas.upload import ImageUploadResponse
 router = APIRouter()
 
 _ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+_JPEG_SIGNATURE = b"\xff\xd8\xff"
+_GIF_SIGNATURES = (b"GIF87a", b"GIF89a")
 
 try:
     import multipart  # type: ignore  # noqa: F401
@@ -33,6 +36,22 @@ def _extension_from_content_type(content_type: str) -> str:
     return ""
 
 
+def _normalize_content_type(content_type: str | None) -> str:
+    return (content_type or "application/octet-stream").split(";")[0].strip().lower()
+
+
+def _is_valid_image_signature(content_type: str, data: bytes) -> bool:
+    if content_type == "image/jpeg":
+        return data.startswith(_JPEG_SIGNATURE)
+    if content_type == "image/png":
+        return data.startswith(_PNG_SIGNATURE)
+    if content_type == "image/gif":
+        return data.startswith(_GIF_SIGNATURES)
+    if content_type == "image/webp":
+        return len(data) >= 12 and data.startswith(b"RIFF") and data[8:12] == b"WEBP"
+    return False
+
+
 if _MULTIPART_AVAILABLE:
     from fastapi import File, UploadFile
 
@@ -42,7 +61,7 @@ if _MULTIPART_AVAILABLE:
         settings: Settings,
         subdir: str,
     ) -> ImageUploadResponse:
-        content_type = file.content_type or "application/octet-stream"
+        content_type = _normalize_content_type(file.content_type)
         if content_type not in _ALLOWED_IMAGE_TYPES:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -50,6 +69,12 @@ if _MULTIPART_AVAILABLE:
             )
 
         data = await file.read()
+        if not _is_valid_image_signature(content_type, data):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Uploaded image content does not match its declared image type.",
+            )
+
         max_bytes = settings.max_upload_size_mb * 1024 * 1024
         if len(data) > max_bytes:
             raise HTTPException(

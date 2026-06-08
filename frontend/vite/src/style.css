@@ -1233,6 +1233,30 @@ main {
   background: var(--leaf-strong);
 }
 
+.ghost-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.65rem;
+  padding: 0 0.95rem;
+  color: var(--leaf-strong);
+  font-weight: 730;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  border-radius: 0.85rem;
+  background: rgba(255, 255, 255, 0.78);
+  transition:
+    transform 160ms var(--ease),
+    box-shadow 160ms var(--ease),
+    background 160ms var(--ease);
+}
+
+.ghost-button:hover {
+  transform: translateY(-2px);
+  background: #fff;
+  box-shadow: var(--shadow-soft);
+}
+
 .product-card--sold-out .product-card__actions button,
 .product-card--sold-out .product-card__actions button:hover {
   color: #7d7a73;
@@ -3140,6 +3164,11 @@ main {
   justify-content: flex-end;
 }
 
+.ai-page-shell {
+  position: relative;
+  min-height: 34rem;
+}
+
 .ai-page {
   display: grid;
   grid-template-columns: 12rem minmax(0, 1fr);
@@ -3147,6 +3176,42 @@ main {
   width: min(960px, 100%);
   min-height: 31rem;
   margin-inline: auto;
+}
+
+.ai-page--locked {
+  pointer-events: none;
+  user-select: none;
+  filter: blur(4px);
+  opacity: 0.48;
+}
+
+.ai-login-gate {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  z-index: 3;
+  display: grid;
+  width: min(24rem, calc(100% - 2rem));
+  gap: 0.75rem;
+  justify-items: start;
+  padding: 1.25rem;
+  border: 1px solid rgba(223, 233, 216, 0.95);
+  border-radius: 1.2rem;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--shadow);
+  transform: translate(-50%, -50%);
+  backdrop-filter: blur(14px);
+}
+
+.ai-login-gate .seed-companion {
+  justify-self: center;
+}
+
+.ai-login-gate h1 {
+  font-size: 2rem;
+}
+
+.ai-login-gate p {
+  color: var(--muted);
 }
 
 .ai-sidebar,
@@ -3457,6 +3522,39 @@ main {
   border: 0;
   border-radius: 0.8rem;
   background: var(--leaf);
+}
+
+.not-found-page {
+  display: grid;
+  min-height: 30rem;
+  place-items: center;
+  padding: 3rem 0;
+}
+
+.not-found-panel {
+  display: grid;
+  width: min(34rem, 100%);
+  gap: 1rem;
+  justify-items: start;
+  padding: 2rem;
+  border: 1px solid var(--line);
+  border-radius: 1.25rem;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: var(--shadow-soft);
+}
+
+.not-found-panel h1 {
+  font-size: 3rem;
+}
+
+.not-found-panel p {
+  color: var(--muted);
+}
+
+.not-found-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
 .cart-page {
@@ -6930,6 +7028,21 @@ main {
 
   .hero-panel {
     padding-top: 2rem;
+  }
+
+  .ai-login-gate {
+    align-content: start;
+    top: 1rem;
+    transform: translateX(-50%);
+  }
+
+  .ai-login-gate h1,
+  .not-found-panel h1 {
+    font-size: 2.1rem;
+  }
+
+  .not-found-panel {
+    padding: 1.25rem;
   }
 
   .auth-visual {

@@ -189,7 +189,7 @@
 
 <script setup>
 import { computed, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { Eye, EyeOff, LogIn, UserPlus } from 'lucide-vue-next'
 import { apiErrorMessage } from '../api/http'
 import { loginAdmin, loginBuyer, loginSeller, registerBuyer } from '../api/auth'
@@ -205,6 +205,7 @@ const roles = [
 ]
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
 const cart = useCartStore()
 const mode = ref('login')
@@ -299,6 +300,10 @@ function visibleWarning(field) {
 }
 
 function redirectByRole(nextRole) {
+  const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : ''
+  if (nextRole === 'buyer' && (redirect === '/ai' || redirect.startsWith('/ai?') || redirect.startsWith('/ai#'))) {
+    return router.push(redirect)
+  }
   if (nextRole === 'seller') return router.push('/seller')
   if (nextRole === 'admin') return router.push('/admin')
   return router.push('/')
