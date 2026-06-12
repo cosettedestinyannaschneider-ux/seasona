@@ -66,6 +66,7 @@ function translateClientError(error) {
   if (status === 413 || lowerMessage.includes('image exceeds') || lowerMessage.includes('payload too large')) {
     return '图片过大，请换一张更小的图片'
   }
+  if (status === 504 && lowerMessage.includes('timeout')) return 'AI 服务响应超时，请稍后再试'
   if (status === 504) return '服务响应超时，请稍后再试'
   if (status === 502 || status === 503) return '服务暂时不可用，请稍后再试'
   return ''
@@ -102,6 +103,7 @@ const API_MESSAGE_TRANSLATIONS = [
   ['Address not found', '地址不存在或已被删除'],
 
   ['LLM provider request failed', 'AI 服务响应失败，请稍后再试'],
+  ['LLM provider request timed out', 'AI 服务响应超时，请稍后再试'],
   ['LLM returned invalid JSON', 'AI 返回格式异常，请稍后重试'],
   ['LLM returned unsupported status', 'AI 返回状态异常，请稍后重试'],
   ['AI chat session is locked', '这次采购清单已经生成，请开启新对话继续提问'],
@@ -184,7 +186,6 @@ const API_MESSAGE_TRANSLATIONS = [
   ['Comment not found', '评论不存在或已被删除'],
 
   ['Only jpeg, png, webp and gif images are allowed', '只支持 jpeg、png、webp 或 gif 图片'],
-  ['Uploaded image content does not match its declared image type', '图片内容与文件类型不匹配，请重新选择图片'],
   ['Image exceeds', '图片过大，请换一张更小的图片'],
 ]
 

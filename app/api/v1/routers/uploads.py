@@ -12,6 +12,11 @@ from app.schemas.upload import ImageUploadResponse
 router = APIRouter()
 
 _ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+_IMAGE_TYPE_ALIASES = {
+    "image/jpg": "image/jpeg",
+    "image/pjpeg": "image/jpeg",
+    "image/x-png": "image/png",
+}
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _JPEG_SIGNATURE = b"\xff\xd8\xff"
 _GIF_SIGNATURES = (b"GIF87a", b"GIF89a")
@@ -37,19 +42,29 @@ def _extension_from_content_type(content_type: str) -> str:
 
 
 def _normalize_content_type(content_type: str | None) -> str:
-    return (content_type or "application/octet-stream").split(";")[0].strip().lower()
+    value = (content_type or "application/octet-stream").split(";")[0].strip().lower()
+    return _IMAGE_TYPE_ALIASES.get(value, value)
 
 
-def _is_valid_image_signature(content_type: str, data: bytes) -> bool:
-    if content_type == "image/jpeg":
-        return data.startswith(_JPEG_SIGNATURE)
-    if content_type == "image/png":
-        return data.startswith(_PNG_SIGNATURE)
-    if content_type == "image/gif":
-        return data.startswith(_GIF_SIGNATURES)
-    if content_type == "image/webp":
-        return len(data) >= 12 and data.startswith(b"RIFF") and data[8:12] == b"WEBP"
-    return False
+def _content_type_from_signature(data: bytes) -> str:
+    if data.startswith(_JPEG_SIGNATURE):
+        return "image/jpeg"
+    if data.startswith(_PNG_SIGNATURE):
+        return "image/png"
+    if data.startswith(_GIF_SIGNATURES):
+        return "image/gif"
+    if len(data) >= 12 and data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return "image/webp"
+    return ""
+
+
+def _resolve_image_content_type(declared_content_type: str, data: bytes) -> str:
+    signature_content_type = _content_type_from_signature(data)
+    if signature_content_type:
+        return signature_content_type
+    if declared_content_type in _ALLOWED_IMAGE_TYPES:
+        return declared_content_type
+    return ""
 
 
 if _MULTIPART_AVAILABLE:
@@ -61,18 +76,13 @@ if _MULTIPART_AVAILABLE:
         settings: Settings,
         subdir: str,
     ) -> ImageUploadResponse:
-        content_type = _normalize_content_type(file.content_type)
-        if content_type not in _ALLOWED_IMAGE_TYPES:
+        data = await file.read()
+        declared_content_type = _normalize_content_type(file.content_type)
+        content_type = _resolve_image_content_type(declared_content_type, data)
+        if not content_type:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Only jpeg, png, webp and gif images are allowed.",
-            )
-
-        data = await file.read()
-        if not _is_valid_image_signature(content_type, data):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Uploaded image content does not match its declared image type.",
             )
 
         max_bytes = settings.max_upload_size_mb * 1024 * 1024

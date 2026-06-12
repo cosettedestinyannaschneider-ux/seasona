@@ -4,6 +4,8 @@ import json
 from typing import Any
 
 from fastapi import HTTPException, status
+import httpx
+from openai import APITimeoutError
 from sqlalchemy import select
 
 from app.core.config import get_settings
@@ -267,6 +269,11 @@ def extract_ingredients(db: Any, session: AiChatSession, user_message: str) -> d
             messages=messages,
             response_format={"type": "json_object"},
         )
+    except (APITimeoutError, httpx.TimeoutException) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="LLM provider request timed out.",
+        ) from exc
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

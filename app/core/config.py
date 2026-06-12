@@ -96,6 +96,7 @@ class Settings(BaseModel):
     llm_api_key: str = ""
     llm_base_url: str = ""
     llm_model: str = ""
+    llm_timeout_seconds: float = 60.0
     embedding_api_key: str = ""
     embedding_base_url: str = ""
     embedding_model: str = ""
@@ -168,6 +169,7 @@ def get_settings() -> Settings:
         llm_api_key=_env("SEASONA_LLM_API_KEY"),
         llm_base_url=_env("SEASONA_LLM_BASE_URL"),
         llm_model=_env("SEASONA_LLM_MODEL"),
+        llm_timeout_seconds=_env_float("SEASONA_LLM_TIMEOUT_SECONDS", 60.0),
         embedding_api_key=_env("SEASONA_EMBEDDING_API_KEY"),
         embedding_base_url=_env("SEASONA_EMBEDDING_BASE_URL"),
         embedding_model=_env("SEASONA_EMBEDDING_MODEL"),

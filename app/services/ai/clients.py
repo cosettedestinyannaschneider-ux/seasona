@@ -11,5 +11,9 @@ def get_llm_client() -> OpenAI:
     return OpenAI(
         api_key=settings.llm_api_key,
         base_url=settings.llm_base_url,
-        http_client=httpx.Client(trust_env=False),
+        timeout=settings.llm_timeout_seconds,
+        http_client=httpx.Client(
+            trust_env=False,
+            timeout=httpx.Timeout(settings.llm_timeout_seconds),
+        ),
     )

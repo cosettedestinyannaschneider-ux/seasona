@@ -107,6 +107,7 @@ Nginx 会从 `frontend/dist` 读取前端页面，从 `media/` 读取上传文�
 - 评价新增或删除后，搜索派生数据会通过后台任务刷新，并使用 Redis 冷却键避免高频重复刷新。
 - 如需手动重建索引，管理员可调用：`POST /api/v1/admin/search/reindex`。
 - FastAPI 不直接保存向量；Embedding 配置用于 Meilisearch REST embedder。
+- 小拾会等待外部 LLM 返回后再写入助手回复。后端等待时间由 `SEASONA_LLM_TIMEOUT_SECONDS` 控制，前端聊天请求等待时间由 `VITE_AI_CHAT_TIMEOUT_MS` 控制，建议前端略大于后端。
 
 ## 认证与权限
 

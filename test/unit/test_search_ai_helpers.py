@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import pytest
 from fastapi import HTTPException
+from openai import APITimeoutError
 
 from app.models.enums import MerchantAuditStatus, ProductStatus, UserStatus
 from app.schemas.search import ProductSearchSort
+from app.services.ai import service as ai_service
 from app.services.ai.service import _parse_llm_payload
 from app.services.search.service import (
     _base_meili_filter,
@@ -50,3 +52,36 @@ def test_parse_llm_payload_normalizes_items_and_rejects_bad_json() -> None:
     with pytest.raises(HTTPException) as invalid_status:
         _parse_llm_payload('{"status":"done","items":[]}')
     assert invalid_status.value.status_code == 502
+
+
+def test_extract_ingredients_maps_llm_timeout_to_gateway_timeout(monkeypatch: pytest.MonkeyPatch, test_settings) -> None:
+    class FakeCompletions:
+        def create(self, **kwargs):
+            _ = kwargs
+            raise APITimeoutError(request=None)
+
+    class FakeClient:
+        chat = type("Chat", (), {"completions": FakeCompletions()})()
+
+    class FakeSession:
+        id = 1
+
+    class FakeDb:
+        def execute(self, statement):
+            _ = statement
+            return self
+
+        def scalars(self):
+            return self
+
+        def all(self):
+            return []
+
+    monkeypatch.setattr(ai_service, "get_settings", lambda: test_settings.model_copy(update={"llm_model": "test-model"}))
+    monkeypatch.setattr(ai_service, "get_llm_client", lambda: FakeClient())
+
+    with pytest.raises(HTTPException) as exc_info:
+        ai_service.extract_ingredients(FakeDb(), FakeSession(), "番茄炒蛋")
+
+    assert exc_info.value.status_code == 504
+    assert exc_info.value.detail == "LLM provider request timed out."
